@@ -268,12 +268,12 @@ const LikersModal = memo(({ likers, onClose }) => (
 ));
 
 // ─── PlayerProfileView ────────────────────────────────────────
-const PlayerProfileView = memo(({ p, posts, onClose }) => (
+const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab }) => (
   <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:100,overflowY:"auto"}} className="fi">
     <div style={{position:"sticky",top:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid var(--border2)",padding:"14px 20px",display:"flex",alignItems:"center",gap:12,zIndex:10}}>
       <button onClick={onClose} style={{background:"var(--bg2)",border:"1px solid var(--border)",color:"var(--text2)",borderRadius:10,padding:"8px 14px",fontSize:12}}>← Back</button>
       <div style={{flex:1,fontSize:14,fontWeight:500}}>{p.name}</div>
-      <button style={{background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",color:"var(--green)",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600}}>Message</button>
+      <button onClick={()=>{onClose();openChat(p);setTab("messages");}} style={{background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",color:"var(--green)",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600}}>Message</button>
     </div>
     <div style={{padding:"24px 20px 120px"}}>
       <div style={{display:"flex",gap:16,alignItems:"flex-start",marginBottom:20}}>
@@ -542,6 +542,15 @@ export default function App() {
   const [viewingPlayer,      setViewingPlayer]      = useState(null);
   const [viewingPlayerPosts, setViewingPlayerPosts] = useState([]);
 
+  // Chat
+  const [conversations,  setConversations]  = useState([]);
+  const [activeConv,     setActiveConv]     = useState(null);
+  const [messages,       setMessages]       = useState([]);
+  const [msgText,        setMsgText]        = useState("");
+  const [unreadCount,    setUnreadCount]    = useState(0);
+  const msgEndRef = useRef();
+  const msgSubRef = useRef(null);
+
   const [tournaments,        setTournaments]        = useState([]);
   const [selectedTournament, setSelectedTournament] = useState(null);
   const [cityPlayers,        setCityPlayers]        = useState([]);
@@ -577,6 +586,83 @@ export default function App() {
     }
   },[selectedTournament,showMap]);
 
+  // Refs so ALL callbacks have stable identity
+  const playerRef    = useRef(player);
+  const postsRef     = useRef(posts);
+  const cmTextRef    = useRef(cmText);
+  const reactionsRef = useRef(reactions);
+  const pollDataRef  = useRef(pollData);
+  useEffect(()=>{ playerRef.current    = player;    },[player]);
+  useEffect(()=>{ postsRef.current     = posts;     },[posts]);
+  useEffect(()=>{ cmTextRef.current    = cmText;    },[cmText]);
+  useEffect(()=>{ reactionsRef.current = reactions; },[reactions]);
+  useEffect(()=>{ pollDataRef.current  = pollData;  },[pollData]);
+
+  // ─── Chat functions ──────────────────────────────────────
+  const loadConversations = useCallback(async () => {
+    if(!playerRef.current) return;
+    const pid = playerRef.current.id;
+    const {data} = await supabase
+      .from("conversations")
+      .select("*, p1:player1_id(id,name,country,ranking,avatar_url), p2:player2_id(id,name,country,ranking,avatar_url)")
+      .or(`player1_id.eq.${pid},player2_id.eq.${pid}`)
+      .order("last_message_at", {ascending:false});
+    if(data) setConversations(data);
+  },[]);
+
+  const countUnread = useCallback(async () => {
+    if(!playerRef.current) return;
+    const pid = playerRef.current.id;
+    const {data:convs} = await supabase.from("conversations").select("id").or(`player1_id.eq.${pid},player2_id.eq.${pid}`);
+    if(!convs?.length){ setUnreadCount(0); return; }
+    const ids = convs.map(c=>c.id);
+    const {count} = await supabase.from("messages").select("id",{count:"exact",head:true}).in("conversation_id",ids).eq("read",false).neq("sender_id",pid);
+    setUnreadCount(count||0);
+  },[]);
+
+  const loadMessages = async (convId) => {
+    const {data} = await supabase.from("messages").select("*").eq("conversation_id",convId).order("created_at",{ascending:true});
+    if(data) setMessages(data);
+    setTimeout(()=>msgEndRef.current?.scrollIntoView({behavior:"smooth"}),100);
+    await supabase.from("messages").update({read:true}).eq("conversation_id",convId).neq("sender_id",playerRef.current?.id);
+    countUnread();
+  };
+
+  const openChat = useCallback(async (otherPlayer) => {
+    const myId = playerRef.current?.id;
+    if(!myId||otherPlayer.id===myId) return;
+    const p1 = myId < otherPlayer.id ? myId : otherPlayer.id;
+    const p2 = myId < otherPlayer.id ? otherPlayer.id : myId;
+    let {data:conv} = await supabase.from("conversations").select("*").eq("player1_id",p1).eq("player2_id",p2).single();
+    if(!conv){
+      const {data:newConv} = await supabase.from("conversations").insert([{player1_id:p1,player2_id:p2}]).select().single();
+      conv = newConv;
+    }
+    if(conv){
+      setActiveConv({conv, otherPlayer});
+      setMessages([]);
+      const {data} = await supabase.from("messages").select("*").eq("conversation_id",conv.id).order("created_at",{ascending:true});
+      if(data) setMessages(data);
+      setTimeout(()=>msgEndRef.current?.scrollIntoView({behavior:"smooth"}),100);
+      await supabase.from("messages").update({read:true}).eq("conversation_id",conv.id).neq("sender_id",playerRef.current?.id);
+      countUnread();
+      if(msgSubRef.current) supabase.removeChannel(msgSubRef.current);
+      msgSubRef.current = supabase.channel("msgs-"+conv.id)
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`conversation_id=eq.${conv.id}`},
+          payload=>{ setMessages(m=>[...m,payload.new]); setTimeout(()=>msgEndRef.current?.scrollIntoView({behavior:"smooth"}),80); }
+        ).subscribe();
+    }
+  },[countUnread]);
+
+  const sendMessage = useCallback(async () => {
+    const text = msgText.trim(); if(!text||!activeConv) return;
+    const sender_id = playerRef.current?.id;
+    setMsgText("");
+    await supabase.from("messages").insert([{conversation_id:activeConv.conv.id,sender_id,content:text}]);
+    await supabase.from("conversations").update({last_message:text,last_message_at:new Date().toISOString()}).eq("id",activeConv.conv.id);
+    loadConversations();
+  },[msgText,activeConv,loadConversations]);
+
   const loadPlayer = async (uid) => {
     const {data} = await supabase.from("players").select("*").eq("user_id",uid).single();
     if(data){
@@ -585,6 +671,8 @@ export default function App() {
         await Promise.all([loadPosts(),loadTournaments()]);
         setScreen("home");
         detectLocation();
+        loadConversations();
+        countUnread();
       } else setScreen("pending");
     } else setScreen("landing");
   };
@@ -776,18 +864,6 @@ export default function App() {
     if(data) setPosts(p=>p.map(x=>x.id===id?data:x));
   },[]);
 
-  // Refs so ALL callbacks have stable identity — zero re-renders of PostCard
-  const playerRef    = useRef(player);
-  const postsRef     = useRef(posts);
-  const cmTextRef    = useRef(cmText);
-  const reactionsRef = useRef(reactions);
-  const pollDataRef  = useRef(pollData);
-  useEffect(()=>{ playerRef.current    = player;    },[player]);
-  useEffect(()=>{ postsRef.current     = posts;     },[posts]);
-  useEffect(()=>{ cmTextRef.current    = cmText;    },[cmText]);
-  useEffect(()=>{ reactionsRef.current = reactions; },[reactions]);
-  useEffect(()=>{ pollDataRef.current  = pollData;  },[pollData]);
-
   const onToggleLike=useCallback(async(post,reactionId)=>{
     const uid=playerRef.current?.user_id; if(!uid) return;
     const cur=reactionsRef.current[post.id]||{tennis:0,fire:0,hundred:0,mine:null};
@@ -974,6 +1050,7 @@ export default function App() {
   // ─── BOTTOM NAV ───────────────────────────────────────────
   const navItems=[
     {id:"feed",    label:"Home",    icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>},
+    {id:"messages",label:"Messages",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>,badge:unreadCount>0},
     {id:"cities",  label:"Discover",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8"/><path d="M20 20l-3-3" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round"/></svg>},
     {id:"profile", label:"Profile", icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8"/><path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round"/></svg>},
     ...(isAdmin?[{id:"admin",label:"Admin",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke={a?"#f59e0b":"var(--text3)"} strokeWidth="1.8" strokeLinejoin="round"/></svg>}]:[]),
@@ -987,7 +1064,7 @@ export default function App() {
       {/* Modals */}
       {editProfile&&<ProfileEditModal player={player} onSave={saveProfile} onClose={()=>setEditProfile(false)}/>}
       {likersModal&&<LikersModal likers={likers} onClose={()=>setLikersModal(null)}/>}
-      {viewingPlayer&&<PlayerProfileView p={viewingPlayer} posts={viewingPlayerPosts} onClose={()=>{setViewingPlayer(null);setViewingPlayerPosts([]);}}/>}
+      {viewingPlayer&&<PlayerProfileView p={viewingPlayer} posts={viewingPlayerPosts} onClose={()=>{setViewingPlayer(null);setViewingPlayerPosts([]);}} openChat={openChat} setTab={setTab}/>}
 
       {/* Top bar */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 20px",borderBottom:"1px solid var(--border2)",background:"rgba(10,10,11,0.95)",position:"sticky",top:0,zIndex:30,backdropFilter:"blur(24px)"}}>
@@ -1318,6 +1395,100 @@ export default function App() {
         );
       })()}
 
+      {/* MESSAGES */}
+      {tab==="messages"&&(()=>{
+        const myId = player?.id;
+        const ago = (d) => {
+          const diff=(Date.now()-new Date(d))/1000;
+          if(diff<60)return"now";if(diff<3600)return`${Math.floor(diff/60)}m`;
+          if(diff<86400)return`${Math.floor(diff/3600)}h`;return`${Math.floor(diff/86400)}d`;
+        };
+
+        // Active conversation view
+        if(activeConv){
+          const {conv, otherPlayer} = activeConv;
+          return (
+            <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 114px)"}}>
+              {/* Conv header */}
+              <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderBottom:"1px solid var(--border2)",background:"var(--bg1)",flexShrink:0}}>
+                <button onClick={()=>{setActiveConv(null);if(msgSubRef.current){supabase.removeChannel(msgSubRef.current);msgSubRef.current=null;}loadConversations();}} style={{background:"transparent",color:"var(--text3)",fontSize:13,padding:"4px 0"}}>←</button>
+                <Avatar src={otherPlayer.avatar_url} name={otherPlayer.name} size={36} flag={getFlag(otherPlayer.country)}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14,fontWeight:500}}>{otherPlayer.name}</div>
+                  <div style={{fontSize:11,color:"var(--text3)"}}>#{otherPlayer.ranking} · {otherPlayer.tour}</div>
+                </div>
+              </div>
+              {/* Messages */}
+              <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:8}}>
+                {messages.length===0&&(
+                  <div style={{textAlign:"center",color:"var(--text3)",fontSize:13,marginTop:40,fontWeight:300}}>
+                    <div style={{fontSize:32,marginBottom:12}}>💬</div>
+                    Start the conversation
+                  </div>
+                )}
+                {messages.map((m,i)=>{
+                  const mine = m.sender_id===myId;
+                  return (
+                    <div key={m.id||i} style={{display:"flex",justifyContent:mine?"flex-end":"flex-start"}}>
+                      <div style={{maxWidth:"75%",background:mine?"var(--green)":"var(--bg2)",color:mine?"#000":"var(--text)",borderRadius:mine?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"10px 14px",fontSize:13,lineHeight:1.55,fontWeight:300,border:mine?"none":"1px solid var(--border)"}}>
+                        {m.content}
+                        <div style={{fontSize:9,color:mine?"rgba(0,0,0,0.5)":"var(--text3)",marginTop:4,textAlign:"right"}}>{ago(m.created_at)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={msgEndRef}/>
+              </div>
+              {/* Input */}
+              <div style={{padding:"12px 16px",borderTop:"1px solid var(--border2)",background:"var(--bg1)",display:"flex",gap:10,alignItems:"center",flexShrink:0}}>
+                <input
+                  style={{flex:1,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:999,padding:"11px 16px",color:"var(--text)",fontSize:14,fontWeight:300}}
+                  placeholder="Message..."
+                  value={msgText}
+                  onChange={e=>setMsgText(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&sendMessage()}
+                  autoFocus
+                />
+                <button onClick={sendMessage} disabled={!msgText.trim()} style={{background:msgText.trim()?"var(--green)":"var(--bg3)",color:msgText.trim()?"#000":"var(--text3)",border:"none",borderRadius:"50%",width:40,height:40,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:msgText.trim()?"0 0 16px var(--glow)":"none",transition:"all 0.15s"}}>↑</button>
+              </div>
+            </div>
+          );
+        }
+
+        // Conversations list
+        return (
+          <div style={{paddingBottom:120}}>
+            <div style={{padding:"20px 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontSize:20,fontFamily:"var(--serif)"}}>Messages</div>
+              {unreadCount>0&&<div style={{fontSize:11,color:"var(--green)",background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",borderRadius:999,padding:"3px 10px",fontWeight:600}}>{unreadCount} new</div>}
+            </div>
+            {conversations.length===0&&(
+              <div style={{textAlign:"center",padding:"60px 24px",color:"var(--text3)"}}>
+                <div style={{fontSize:36,marginBottom:12}}>💬</div>
+                <div style={{fontSize:14,fontWeight:300,marginBottom:8}}>No conversations yet</div>
+                <div style={{fontSize:12,color:"var(--text3)",fontWeight:300}}>Tap Message on any player's profile to start a conversation.</div>
+              </div>
+            )}
+            {conversations.map(conv=>{
+              const other = conv.p1?.id===myId ? conv.p2 : conv.p1;
+              if(!other) return null;
+              return (
+                <button key={conv.id} onClick={()=>openChat(other)} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"14px 20px",borderBottom:"1px solid var(--border2)",background:"transparent",textAlign:"left"}}>
+                  <Avatar src={other.avatar_url} name={other.name} size={46} flag={getFlag(other.country)}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                      <span style={{fontSize:14,fontWeight:500}}>{other.name}</span>
+                      <span style={{fontSize:10,color:"var(--text3)",flexShrink:0}}>{conv.last_message_at?ago(conv.last_message_at):""}</span>
+                    </div>
+                    <div style={{fontSize:12,color:"var(--text3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:300}}>{conv.last_message||"New conversation"}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* ADMIN */}
       {tab==="admin"&&(
         <div style={{paddingBottom:120}}>
@@ -1349,8 +1520,9 @@ export default function App() {
       {/* Bottom nav */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(24px)",borderTop:"1px solid var(--border)",display:"flex",zIndex:50,maxWidth:480,margin:"0 auto",paddingBottom:"env(safe-area-inset-bottom,0px)"}}>
         {navItems.map(item=>(
-          <button key={item.id} onClick={()=>{setTab(item.id);if(item.id==="admin")loadPending();}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 8px 14px",background:"transparent"}}>
+          <button key={item.id} onClick={()=>{setTab(item.id);if(item.id==="admin")loadPending();if(item.id==="messages"){loadConversations();countUnread();}}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 8px 14px",background:"transparent",position:"relative"}}>
             {item.icon(tab===item.id)}
+            {item.badge&&<div style={{position:"absolute",top:8,right:"50%",marginRight:-14,width:16,height:16,background:"#ef4444",borderRadius:"50%",fontSize:9,fontWeight:700,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>{unreadCount>9?"9+":unreadCount}</div>}
             <span style={{fontSize:9,letterSpacing:"0.06em",textTransform:"uppercase",color:tab===item.id?(item.id==="admin"?"#f59e0b":"var(--green)"):"var(--text3)",fontWeight:tab===item.id?700:400}}>{item.label}</span>
           </button>
         ))}
