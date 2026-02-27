@@ -531,6 +531,13 @@ export default function App() {
   const [posts,   setPosts]   = useState([]);
   const [pending, setPending] = useState([]);
   const [catFilter, setCatFilter] = useState("All");
+  const [feedPage,   setFeedPage]   = useState(1);
+  const [feedHasMore,setFeedHasMore]= useState(true);
+  const [feedLoading,setFeedLoading]= useState(false);
+  const feedObserverRef = useRef(null);
+  const feedEndRef      = useRef(null);
+  const feedSubRef      = useRef(null);
+  const FEED_PAGE_SIZE  = 15;
   const [ok,  setOk]  = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -735,16 +742,92 @@ export default function App() {
     loadNotifications();
   };
 
-  const loadPosts = async () => {
+  const loadPosts = async (reset=true) => {
+    if(reset){ setFeedPage(1); setFeedHasMore(true); }
+    setFeedLoading(true);
+    const from = reset ? 0 : 0; // reset always loads first page
     const {data} = await supabase
       .from("posts")
       .select("*, players!posts_user_id_fkey(verified,avatar_url)")
-      .order("created_at",{ascending:false});
+      .order("created_at",{ascending:false})
+      .range(0, FEED_PAGE_SIZE - 1);
     if(data){
       const enriched = data.map(p=>({...p, verified:p.players?.verified||false, avatar_url:p.avatar_url||p.players?.avatar_url}));
       setPosts(enriched);
+      setFeedHasMore(data.length === FEED_PAGE_SIZE);
     }
+    setFeedLoading(false);
   };
+
+  const loadMorePosts = useCallback(async () => {
+    if(feedLoading || !feedHasMore) return;
+    setFeedLoading(true);
+    const nextPage = feedPage + 1;
+    const from = (nextPage - 1) * FEED_PAGE_SIZE;
+    const to   = from + FEED_PAGE_SIZE - 1;
+    const {data} = await supabase
+      .from("posts")
+      .select("*, players!posts_user_id_fkey(verified,avatar_url)")
+      .order("created_at",{ascending:false})
+      .range(from, to);
+    if(data){
+      const enriched = data.map(p=>({...p, verified:p.players?.verified||false, avatar_url:p.avatar_url||p.players?.avatar_url}));
+      setPosts(prev => {
+        const ids = new Set(prev.map(p=>p.id));
+        return [...prev, ...enriched.filter(p=>!ids.has(p.id))];
+      });
+      setFeedHasMore(data.length === FEED_PAGE_SIZE);
+      setFeedPage(nextPage);
+    }
+    setFeedLoading(false);
+  },[feedPage, feedLoading, feedHasMore]);
+
+  // ─── Feed realtime subscription ─────────────────────────────
+  const subscribeFeed = useCallback(() => {
+    if(feedSubRef.current) supabase.removeChannel(feedSubRef.current);
+    feedSubRef.current = supabase
+      .channel("feed-realtime")
+      .on("postgres_changes",
+        {event:"INSERT", schema:"public", table:"posts"},
+        async (payload) => {
+          // Fetch the new post with player info
+          const {data} = await supabase
+            .from("posts")
+            .select("*, players!posts_user_id_fkey(verified,avatar_url)")
+            .eq("id", payload.new.id)
+            .single();
+          if(data){
+            const enriched = {...data, verified:data.players?.verified||false, avatar_url:data.avatar_url||data.players?.avatar_url};
+            setPosts(prev => {
+              if(prev.find(p=>p.id===enriched.id)) return prev;
+              return [enriched, ...prev];
+            });
+            setNewPostsBanner(b => b + 1);
+          }
+        }
+      )
+      .subscribe();
+  },[]);
+
+  const [newPostsBanner, setNewPostsBanner] = useState(0);
+
+  // IntersectionObserver for infinite scroll
+  useEffect(() => {
+    if(!feedEndRef.current) return;
+    if(feedObserverRef.current) feedObserverRef.current.disconnect();
+    feedObserverRef.current = new IntersectionObserver(
+      entries => { if(entries[0].isIntersecting) loadMorePosts(); },
+      {threshold: 0.1}
+    );
+    feedObserverRef.current.observe(feedEndRef.current);
+    return () => feedObserverRef.current?.disconnect();
+  },[loadMorePosts]);
+
+  // Start realtime when player is loaded
+  useEffect(()=>{
+    if(player?.id) subscribeFeed();
+    return ()=>{ if(feedSubRef.current) supabase.removeChannel(feedSubRef.current); };
+  },[player?.id, subscribeFeed]);
 
   const loadTournaments = async () => {
     const {data} = await supabase.from("tournaments").select("*");
@@ -1045,6 +1128,8 @@ export default function App() {
   };
 
   const filteredPosts=catFilter==="All"?posts:posts.filter(p=>p.category===catFilter);
+  // Reset pagination when filter changes
+  useEffect(()=>{ setFeedPage(1); setFeedHasMore(true); },[catFilter]);
   const isAdmin=session?.user?.email===ADMIN_EMAIL;
   const tournamentsByCity=tournaments.reduce((acc,t)=>{if(!acc[t.city])acc[t.city]=[];acc[t.city].push(t);return acc;},{});
   const allCities=Object.keys(tournamentsByCity).sort();
@@ -1228,6 +1313,12 @@ export default function App() {
       {/* FEED */}
       {tab==="feed"&&(
         <div style={{paddingBottom:120}}>
+          {/* New posts banner */}
+          {newPostsBanner>0&&(
+            <button onClick={()=>{setNewPostsBanner(0);window.scrollTo({top:0,behavior:"smooth"});}} style={{position:"sticky",top:52,zIndex:40,width:"100%",background:"var(--green)",color:"#000",border:"none",padding:"10px",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:8,animation:"fadeIn 0.2s"}}>
+              ↑ {newPostsBanner} new post{newPostsBanner>1?"s":""} — tap to refresh
+            </button>
+          )}
           {/* Category tabs */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",borderBottom:"1px solid var(--border2)",background:"var(--bg1)"}}>
             {CATS.map(c=>(
@@ -1298,6 +1389,23 @@ export default function App() {
               onOpenProfile={openProfile}
             />
           ))}
+
+          {/* Infinite scroll sentinel + load more indicator */}
+          {feedHasMore && (
+            <div ref={feedEndRef} style={{padding:"24px",display:"flex",justifyContent:"center"}}>
+              {feedLoading && (
+                <div style={{display:"flex",gap:8,alignItems:"center",color:"var(--text3)",fontSize:13}}>
+                  <div style={{width:16,height:16,border:"2px solid var(--bg3)",borderTopColor:"var(--green)",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
+                  Loading more...
+                </div>
+              )}
+            </div>
+          )}
+          {!feedHasMore && posts.length > 0 && (
+            <div style={{textAlign:"center",padding:"32px 20px",color:"var(--text3)",fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+              You're all caught up ✦
+            </div>
+          )}
         </div>
       )}
 
@@ -1670,7 +1778,7 @@ export default function App() {
       {/* Bottom nav */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(24px)",borderTop:"1px solid var(--border)",display:"flex",zIndex:50,maxWidth:480,margin:"0 auto",paddingBottom:"env(safe-area-inset-bottom,0px)"}}>
         {navItems.map(item=>(
-          <button key={item.id} onClick={()=>{setTab(item.id);if(item.id==="admin")loadPending();}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 8px 14px",background:"transparent"}}>
+          <button key={item.id} onClick={()=>{setTab(item.id);if(item.id==="admin")loadPending();if(item.id==="feed")setNewPostsBanner(0);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 8px 14px",background:"transparent"}}>
             <div style={{position:"relative"}}>
               {item.icon(tab===item.id)}
               {item.id==="messages"&&unreadCount>0&&<div style={{position:"absolute",top:-4,right:-4,minWidth:15,height:15,background:"#ef4444",borderRadius:999,fontSize:8,fontWeight:700,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{unreadCount>9?"9+":unreadCount}</div>}
