@@ -586,15 +586,6 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
-  // Chat
-  const [conversations,    setConversations]    = useState([]);
-  const [activeConv,       setActiveConv]       = useState(null); // {conv, otherPlayer}
-  const [messages,         setMessages]         = useState([]);
-  const [msgText,          setMsgText]          = useState("");
-  const [unreadCount,      setUnreadCount]      = useState(0);
-  const msgEndRef = useRef();
-  const msgSubRef = useRef(null);
-
   const [tournaments,        setTournaments]        = useState([]);
   const [selectedTournament, setSelectedTournament] = useState(null);
   const [cityPlayers,        setCityPlayers]        = useState([]);
