@@ -494,6 +494,209 @@ const TournamentStoriesRow = memo(({tournament, stories, myPlayerId, checkedInPl
   );
 });
 
+
+// ─── Sponsor Category Icons ──────────────────────────────────
+const SPONSOR_CATS = {
+  restaurant:   {icon:"🍽️", label:"Restaurant",  color:"#f59e0b"},
+  hotel:        {icon:"🏨", label:"Hotel",        color:"#6366f1"},
+  physiotherapy:{icon:"💆", label:"Physio",       color:"#10b981"},
+  shopping:     {icon:"🛍️", label:"Shopping",     color:"#ec4899"},
+  transport:    {icon:"🚗", label:"Transport",    color:"#3b82f6"},
+  spa:          {icon:"🧘", label:"Spa & Wellness",color:"#a78bfa"},
+  pharmacy:     {icon:"💊", label:"Pharmacy",     color:"#ef4444"},
+  other:        {icon:"📍", label:"Partner",      color:"var(--green)"},
+};
+
+// ─── Sponsor Card ────────────────────────────────────────────
+const SponsorCard = memo(({s}) => {
+  const cat = SPONSOR_CATS[s.category] || SPONSOR_CATS.other;
+  return (
+    <div style={{background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden",flexShrink:0,width:200}}>
+      {s.logo_url&&(
+        <div style={{height:100,background:"var(--bg3)",overflow:"hidden"}}>
+          <img src={s.logo_url} alt={s.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+        </div>
+      )}
+      <div style={{padding:"12px 14px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+          <span style={{fontSize:14}}>{cat.icon}</span>
+          <span style={{fontSize:9,color:cat.color,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase"}}>{cat.label}</span>
+          {s.featured&&<span style={{fontSize:9,background:"rgba(245,158,11,0.15)",color:"#f59e0b",borderRadius:999,padding:"1px 6px",fontWeight:700,border:"1px solid rgba(245,158,11,0.3)"}}>Featured</span>}
+        </div>
+        <div style={{fontSize:14,fontWeight:600,marginBottom:4,color:"var(--text)"}}>{s.name}</div>
+        {s.description&&<div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5,fontWeight:300,marginBottom:8}}>{s.description}</div>}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          {s.distance_text&&<span style={{fontSize:11,color:"var(--text3)"}}>📍 {s.distance_text}</span>}
+          {s.url&&(
+            <a href={s.url} target="_blank" rel="noopener noreferrer"
+              style={{fontSize:12,fontWeight:600,color:cat.color,background:`${cat.color}15`,
+                border:`1px solid ${cat.color}33`,borderRadius:8,padding:"5px 10px",textDecoration:"none"}}>
+              Visit →
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ─── Sponsors Section ────────────────────────────────────────
+const SponsorsSection = memo(({sponsors, city}) => {
+  const [filter, setFilter] = React.useState("all");
+  const cats = ["all", ...new Set(sponsors.map(s=>s.category))];
+  const visible = filter==="all" ? sponsors : sponsors.filter(s=>s.category===filter);
+  if(sponsors.length===0) return null;
+  return (
+    <div style={{padding:"20px 16px 0"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:600,fontFamily:"var(--serif)"}}>Partners near {city}</div>
+          <div style={{fontSize:11,color:"var(--text3)",fontWeight:300,marginTop:2}}>Recommended for PlayerCircle members</div>
+        </div>
+      </div>
+      {/* Category filter pills */}
+      {cats.length>2&&(
+        <div style={{display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none",marginBottom:16,paddingBottom:4}}>
+          {cats.map(c=>{
+            const catInfo = SPONSOR_CATS[c];
+            return (
+              <button key={c} onClick={()=>setFilter(c)}
+                style={{flexShrink:0,padding:"6px 14px",borderRadius:999,fontSize:11,fontWeight:filter===c?600:300,
+                  background:filter===c?"var(--green)":"var(--bg2)",
+                  color:filter===c?"#000":"var(--text2)",
+                  border:filter===c?"none":"1px solid var(--border)"}}>
+                {c==="all"?"All":catInfo?.icon+" "+catInfo?.label||c}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {/* Horizontal scroll cards */}
+      <div style={{display:"flex",gap:12,overflowX:"auto",scrollbarWidth:"none",paddingBottom:12}}>
+        {visible.map(s=><SponsorCard key={s.id} s={s}/>)}
+      </div>
+    </div>
+  );
+});
+
+
+// ─── Admin Sponsors Manager ──────────────────────────────────
+const AdminSponsors = memo(({supabase, SPONSOR_CATS, allCities}) => {
+  const [sponsors, setSponsors] = React.useState([]);
+  const [editCity, setEditCity] = React.useState(allCities[0]||"");
+  const [form, setForm] = React.useState({name:"",category:"restaurant",city:"",description:"",url:"",logo_url:"",distance_text:"",featured:false,sort_order:0,active:true});
+  const [adding, setAdding] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+
+  const load = React.useCallback(async(city)=>{
+    const {data}=await supabase.from("sponsors").select("*").eq("city",city).order("sort_order");
+    if(data) setSponsors(data);
+  },[supabase]);
+
+  React.useEffect(()=>{ if(editCity) load(editCity); },[editCity,load]);
+
+  const save = async()=>{
+    setSaving(true);
+    await supabase.from("sponsors").insert([{...form,city:editCity}]);
+    setAdding(false);
+    setForm({name:"",category:"restaurant",city:"",description:"",url:"",logo_url:"",distance_text:"",featured:false,sort_order:0,active:true});
+    await load(editCity);
+    setSaving(false);
+  };
+
+  const toggle = async(id, active)=>{
+    await supabase.from("sponsors").update({active}).eq("id",id);
+    setSponsors(s=>s.map(x=>x.id===id?{...x,active}:x));
+  };
+
+  const del = async(id)=>{
+    if(!window.confirm("Delete this sponsor?")) return;
+    await supabase.from("sponsors").delete().eq("id",id);
+    setSponsors(s=>s.filter(x=>x.id!==id));
+  };
+
+  return (
+    <div style={{padding:"0 0 20px"}}>
+      <div style={{padding:"16px 20px 12px",fontSize:11,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",fontWeight:600,borderBottom:"1px solid var(--border2)"}}>
+        Partners / Sponsors
+      </div>
+
+      {/* City picker */}
+      <div style={{padding:"12px 16px",display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none",borderBottom:"1px solid var(--border2)"}}>
+        {allCities.map(c=>(
+          <button key={c} onClick={()=>setEditCity(c)}
+            style={{flexShrink:0,padding:"6px 14px",borderRadius:999,fontSize:12,fontWeight:editCity===c?600:300,
+              background:editCity===c?"var(--green)":"var(--bg2)",color:editCity===c?"#000":"var(--text2)",
+              border:editCity===c?"none":"1px solid var(--border)"}}>
+            {c}
+          </button>
+        ))}
+      </div>
+
+      {/* Sponsors list */}
+      <div style={{padding:"12px 16px"}}>
+        {sponsors.map(s=>{
+          const cat = SPONSOR_CATS[s.category]||SPONSOR_CATS.other;
+          return (
+            <div key={s.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:12,marginBottom:8}}>
+              {s.logo_url&&<img src={s.logo_url} style={{width:36,height:36,borderRadius:8,objectFit:"cover"}} alt=""/>}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+                  {cat.icon} {s.name}
+                  {s.featured&&<span style={{fontSize:9,color:"#f59e0b",fontWeight:700}}>FEATURED</span>}
+                </div>
+                <div style={{fontSize:11,color:"var(--text3)"}}>{cat.label} · {s.distance_text||"no distance"}</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>toggle(s.id,!s.active)}
+                  style={{fontSize:11,padding:"4px 10px",borderRadius:8,fontWeight:600,
+                    background:s.active?"rgba(0,208,132,0.1)":"var(--bg3)",
+                    color:s.active?"var(--green)":"var(--text3)",
+                    border:`1px solid ${s.active?"rgba(0,208,132,0.2)":"var(--border)"}`}}>
+                  {s.active?"Active":"Hidden"}
+                </button>
+                <button onClick={()=>del(s.id)} style={{fontSize:11,padding:"4px 10px",borderRadius:8,color:"#ef4444",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",fontWeight:600}}>Del</button>
+              </div>
+            </div>
+          );
+        })}
+        {sponsors.length===0&&<div style={{textAlign:"center",padding:"24px",color:"var(--text3)",fontSize:13}}>No sponsors for {editCity} yet.</div>}
+
+        {/* Add new form */}
+        {adding ? (
+          <div style={{background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginTop:12}}>
+            <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>New sponsor in {editCity}</div>
+            {[["name","Name *"],["description","Description"],["url","Website URL"],["logo_url","Logo URL"],["distance_text","Distance (e.g. 5 min walk)"]].map(([k,l])=>(
+              <input key={k} placeholder={l} value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}
+                style={{width:"100%",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",color:"var(--text)",fontSize:13,marginBottom:8}}/>
+            ))}
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}
+                style={{flex:1,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",color:"var(--text)",fontSize:13}}>
+                {Object.entries(SPONSOR_CATS).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}
+              </select>
+              <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,color:"var(--text2)"}}>
+                <input type="checkbox" checked={form.featured} onChange={e=>setForm(f=>({...f,featured:e.target.checked}))}/> Featured
+              </label>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={save} disabled={!form.name||saving}
+                style={{flex:1,background:"var(--green)",color:"#000",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:600}}>
+                {saving?"Saving...":"Save sponsor"}
+              </button>
+              <button onClick={()=>setAdding(false)} style={{padding:"11px 16px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,fontSize:13,color:"var(--text2)"}}>Cancel</button>
+            </div>
+          </div>
+        ):(
+          <button onClick={()=>setAdding(true)} style={{width:"100%",marginTop:8,background:"rgba(0,208,132,0.06)",border:"1px dashed rgba(0,208,132,0.3)",borderRadius:12,padding:"12px",color:"var(--green)",fontSize:13,fontWeight:600}}>
+            + Add sponsor to {editCity}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
 const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab, toggleFollow, following }) => (
   <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:100,overflowY:"auto"}} className="fi">
     <div style={{position:"sticky",top:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid var(--border2)",padding:"14px 20px",display:"flex",alignItems:"center",gap:12,zIndex:10}}>
@@ -804,6 +1007,11 @@ export default function App() {
   const msgEndRef = useRef();
   const msgSubRef = useRef(null);
 
+  const [aceFile,        setAceFile]        = useState(null);  // file staged for Ace send
+  const [aceUploading,   setAceUploading]   = useState(false);
+  const [viewingAce,     setViewingAce]     = useState(null);  // {url, type, msgId} — opened once
+  const aceInputRef = useRef();
+
   const [showCompose,    setShowCompose]    = useState(false);
   const [composeSearch,  setComposeSearch]  = useState("");
   const [composeResults, setComposeResults] = useState([]);
@@ -823,6 +1031,9 @@ export default function App() {
   const [searchQuery,   setSearchQuery]   = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
+
+  const [sponsors,          setSponsors]          = useState([]);
+  const [sponsorCity,       setSponsorCity]        = useState(null); // city being shown
 
   const [tournaments,        setTournaments]        = useState([]);
   const [selectedTournament, setSelectedTournament] = useState(null);
@@ -918,6 +1129,44 @@ export default function App() {
     await supabase.from("notifications").insert([{recipient_id:activeConv.otherPlayer.id,sender_id:playerRef.current?.id,type:"message",message:`${playerRef.current?.name} sent you a message`}]);
     loadConversations();
   },[msgText,activeConv,loadConversations]);
+
+  const sendAce = useCallback(async (file) => {
+    if(!file || !activeConv || !playerRef.current) return;
+    setAceUploading(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `aces/${playerRef.current.id}/${Date.now()}.${ext}`;
+      const {error} = await supabase.storage.from("media").upload(path, file, {upsert:true});
+      if(error) throw error;
+      const {data:{publicUrl}} = supabase.storage.from("media").getPublicUrl(path);
+      const aceType = file.type.startsWith("video") ? "video" : "image";
+      const sender_id = playerRef.current.id;
+      await supabase.from("messages").insert([{
+        conversation_id: activeConv.conv.id,
+        sender_id,
+        content: "🎾 Ace",
+        ace_url: publicUrl,
+        ace_type: aceType,
+        ace_opened: false,
+      }]);
+      await supabase.from("conversations").update({
+        last_message: "🎾 Sent an Ace",
+        last_message_at: new Date().toISOString()
+      }).eq("id", activeConv.conv.id);
+      setAceFile(null);
+    } catch(e){ console.error(e); }
+    setAceUploading(false);
+  },[activeConv]);
+
+  const openAce = useCallback(async (msg) => {
+    if(!msg.ace_url) return;
+    // Mark as opened
+    await supabase.from("messages").update({ace_opened:true}).eq("id",msg.id);
+    setMessages(prev => prev.map(m => m.id===msg.id ? {...m, ace_opened:true} : m));
+    setViewingAce({url:msg.ace_url, type:msg.ace_type||"image", msgId:msg.id});
+    // Auto-close after 3 seconds
+    setTimeout(() => setViewingAce(null), 3000);
+  },[]);
 
   // ─── Notification functions ───────────────────────────────
   const loadNotifications = useCallback(async () => {
@@ -1174,6 +1423,16 @@ export default function App() {
     return ()=>{ if(feedSubRef.current) supabase.removeChannel(feedSubRef.current); };
   },[player?.id, subscribeFeed]);
 
+  const loadSponsors = useCallback(async (city) => {
+    const {data} = await supabase
+      .from("sponsors")
+      .select("*")
+      .eq("city", city)
+      .eq("active", true)
+      .order("sort_order", {ascending:true});
+    if(data){ setSponsors(data); setSponsorCity(city); }
+  },[]);
+
   const loadTournaments = async () => {
     const {data} = await supabase.from("tournaments").select("*");
     if(data) setTournaments(data);
@@ -1291,6 +1550,7 @@ export default function App() {
     setActiveTip("Training");
     setShowMap(false);
     await loadTournamentPlayers(t.id);
+    loadSponsors(t.city);
   };
 
   const login = async () => {
@@ -1921,6 +2181,10 @@ export default function App() {
             {tips.length>0&&(
               <div style={{padding:"14px 0"}}>
                 <div style={{fontSize:11,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10,fontWeight:600,padding:"0 16px"}}>City guide</div>
+                {/* Sponsors / Partners */}
+                {sponsorCity===selectedTournament.city&&sponsors.length>0&&(
+                  <SponsorsSection sponsors={sponsors} city={selectedTournament.city}/>
+                )}
                 <div style={{display:"flex",gap:8,padding:"0 16px 12px",overflowX:"auto"}}>
                   {tipCats.map(tc=><button key={tc} onClick={()=>setActiveTip(tc)} style={{whiteSpace:"nowrap",padding:"6px 14px",borderRadius:999,border:`1px solid ${activeTip===tc?"var(--green)":"var(--border)"}`,background:activeTip===tc?"rgba(0,208,132,0.1)":"transparent",color:activeTip===tc?"var(--green)":"var(--text3)",fontSize:11,fontWeight:activeTip===tc?600:400}}>{tc}</button>)}
                 </div>
@@ -2149,6 +2413,30 @@ export default function App() {
 
       
 
+      {/* Ace Viewer — view once, 3s timer */}
+      {viewingAce&&(
+        <div style={{position:"fixed",inset:0,zIndex:400,background:"#000",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}
+          onClick={()=>setViewingAce(null)}>
+          <div style={{position:"absolute",top:16,left:0,right:0,padding:"0 16px",zIndex:10}}>
+            <div style={{height:3,borderRadius:999,background:"rgba(255,255,255,0.2)",overflow:"hidden"}}>
+              <div style={{height:"100%",background:"var(--green)",animation:"storyProgress 3s linear forwards"}}/>
+            </div>
+          </div>
+          <div style={{position:"absolute",top:40,left:0,right:0,display:"flex",justifyContent:"center"}}>
+            <div style={{background:"rgba(0,0,0,0.6)",borderRadius:999,padding:"6px 16px",display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:16}}>🎾</span>
+              <span style={{fontSize:13,color:"#fff",fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase"}}>ACE</span>
+              <span style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>· disappears in 3s</span>
+            </div>
+          </div>
+          {viewingAce.type==="video"
+            ?<video src={viewingAce.url} autoPlay muted style={{maxWidth:"100%",maxHeight:"80vh",objectFit:"contain"}}/>
+            :<img src={viewingAce.url} alt="Ace" style={{maxWidth:"100%",maxHeight:"80vh",objectFit:"contain"}}/>
+          }
+          <div style={{position:"absolute",bottom:40,color:"rgba(255,255,255,0.4)",fontSize:12}}>Tap anywhere to close</div>
+        </div>
+      )}
+
       {/* Story Viewer */}
       {activeStory&&(
         <StoryViewer
@@ -2234,7 +2522,31 @@ export default function App() {
                   return(
                     <div key={m.id||i} style={{display:"flex",justifyContent:isMe?"flex-end":"flex-start",marginBottom:10}}>
                       <div style={{maxWidth:"75%",background:isMe?"var(--green)":"var(--bg2)",color:isMe?"#000":"var(--text)",borderRadius:isMe?"14px 14px 4px 14px":"14px 14px 14px 4px",padding:"10px 14px",border:isMe?"none":"1px solid var(--border)"}}>
-                        <div style={{fontSize:14,lineHeight:1.55,fontWeight:isMe?500:300}}>{m.content}</div>
+                        {m.ace_url ? (
+                          // ACE message
+                          isMe ? (
+                            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                              <div style={{fontSize:20}}>🎾</div>
+                              <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.06em"}}>ACE sent</div>
+                              <div style={{fontSize:10,opacity:0.7}}>{m.ace_opened?"Opened":"Not opened yet"}</div>
+                            </div>
+                          ) : (
+                            m.ace_opened ? (
+                              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,opacity:0.5}}>
+                                <div style={{fontSize:20}}>🎾</div>
+                                <div style={{fontSize:12,fontWeight:600}}>Ace — opened</div>
+                              </div>
+                            ) : (
+                              <button onClick={()=>openAce(m)} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,background:"transparent",padding:"4px 8px"}}>
+                                <div style={{width:56,height:56,borderRadius:"50%",background:"rgba(0,208,132,0.15)",border:"2px solid var(--green)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,animation:"pulse 2s infinite"}}>🎾</div>
+                                <div style={{fontSize:12,fontWeight:700,color:"var(--green)",letterSpacing:"0.04em"}}>TAP TO OPEN</div>
+                                <div style={{fontSize:10,color:"var(--text3)",fontWeight:300}}>View once · disappears</div>
+                              </button>
+                            )
+                          )
+                        ) : (
+                          <div style={{fontSize:14,lineHeight:1.55,fontWeight:isMe?500:300}}>{m.content}</div>
+                        )}
                         <div style={{fontSize:9,color:isMe?"rgba(0,0,0,0.5)":"var(--text3)",marginTop:4,textAlign:"right"}}>{ago(m.created_at)}</div>
                       </div>
                     </div>
@@ -2243,6 +2555,16 @@ export default function App() {
                 <div ref={msgEndRef}/>
               </div>
               <div style={{padding:"12px 16px",borderTop:"1px solid var(--border2)",display:"flex",gap:10,alignItems:"center",flexShrink:0,background:"var(--bg1)"}}>
+                {/* Ace button */}
+                <button onClick={()=>aceInputRef.current?.click()}
+                  style={{width:36,height:36,borderRadius:"50%",background:"rgba(0,208,132,0.08)",
+                    border:"1px solid rgba(0,208,132,0.2)",color:"var(--green)",fontSize:16,flexShrink:0,
+                    display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}
+                  title="Send an Ace — view once">
+                  {aceUploading?"…":"🎾"}
+                </button>
+                <input ref={aceInputRef} type="file" accept="image/*,video/*" style={{display:"none"}}
+                  onChange={e=>{const f=e.target.files?.[0];if(f)sendAce(f);e.target.value="";}}/>
                 <input style={{flex:1,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:999,padding:"10px 16px",color:"var(--text)",fontSize:14}} placeholder="Type a message..." value={msgText} onChange={e=>setMsgText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()}/>
                 <button onClick={sendMessage} disabled={!msgText.trim()} style={{width:40,height:40,borderRadius:"50%",background:msgText.trim()?"var(--green)":"var(--bg3)",color:msgText.trim()?"#000":"var(--text3)",border:"none",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,flexShrink:0}}>↑</button>
               </div>
@@ -2278,6 +2600,11 @@ export default function App() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Admin — Sponsor Management */}
+      {tab==="admin"&&(
+        <AdminSponsors supabase={supabase} SPONSOR_CATS={SPONSOR_CATS} allCities={tournaments.map(t=>t.city).filter((c,i,a)=>a.indexOf(c)===i).sort()}/>
       )}
 
       {/* Bottom nav */}
