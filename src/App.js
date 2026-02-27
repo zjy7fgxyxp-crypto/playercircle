@@ -1300,11 +1300,10 @@ export default function App() {
 
   // ─── BOTTOM NAV ───────────────────────────────────────────
   const navItems=[
-    {id:"feed",    label:"Home",    icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>},
-    {id:"cities",  label:"Discover",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8"/><path d="M20 20l-3-3" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round"/></svg>},
-    {id:"messages",label:"Messages",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>},
-    {id:"profile", label:"Profile", icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8"/><path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round"/></svg>},
-    ...(isAdmin?[{id:"admin",label:"Admin",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke={a?"#f59e0b":"var(--text3)"} strokeWidth="1.8" strokeLinejoin="round"/></svg>}]:[]),
+    {id:"feed",     label:"Home",     icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>},
+    {id:"rallies",  label:"Rallies",  icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" fill={a?"var(--green)":"none"} stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinejoin="round"/></svg>},
+    {id:"messages", label:"Messages", icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>},
+    {id:"profile",  label:"Profile",  icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8"/><path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round"/></svg>},
   ];
 
   // ─── HOME APP SHELL ───────────────────────────────────────
@@ -1375,20 +1374,16 @@ export default function App() {
           </button>
           <span style={{fontSize:18}}>{getFlag(player?.country)}</span>
           <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",padding:"4px 12px",borderRadius:999,color:"var(--green)",background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)"}}>#{player?.ranking} {player?.tour}</div>
+          {isAdmin&&(
+            <button onClick={()=>{setTab("admin");loadPending();}} style={{background:tab==="admin"?"rgba(245,158,11,0.15)":"transparent",border:tab==="admin"?"1px solid rgba(245,158,11,0.3)":"1px solid transparent",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,color:tab==="admin"?"#f59e0b":"var(--text3)",letterSpacing:"0.06em",textTransform:"uppercase"}}>Admin</button>
+          )}
         </div>
       </div>
 
       {/* FEED */}
       {tab==="feed"&&(
         <div style={{paddingBottom:120}}>
-          {/* Main feed tabs */}
-          <div style={{display:"flex",gap:0,background:"var(--bg1)",borderBottom:"1px solid var(--border2)"}}>
-            {[["feed","Feed"],["rallies","🎬 Rallies"]].map(([mode,label])=>(
-              <button key={mode} onClick={()=>setFeedMode(mode)} style={{flex:1,padding:"13px 8px",background:"transparent",borderBottom:`2px solid ${feedMode===mode?"var(--green)":"transparent"}`,color:feedMode===mode?"var(--green)":"var(--text3)",fontSize:13,fontWeight:feedMode===mode?600:300,letterSpacing:feedMode===mode?"0":"0",transition:"all 0.15s"}}>
-                {label}
-              </button>
-            ))}
-          </div>
+
 
 
           {/* RALLIES - fullscreen vertical video */}
@@ -1763,15 +1758,27 @@ export default function App() {
                   </div>
                 )}
                 {myPosts.map(post=>(
-                  <div key={post.id} style={{background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 14px",marginBottom:8}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-                      <CatBadge category={post.category}/>
-                      <span style={{fontSize:11,color:"var(--text3)",fontWeight:300}}>{Math.floor((Date.now()-new Date(post.created_at))/86400000)}d ago</span>
-                      {post.replies>0&&<span style={{fontSize:11,color:"var(--text3)"}}>💬 {post.replies}</span>}
-                      {((reactions[post.id]?.tennis||0)+(reactions[post.id]?.fire||0)+(reactions[post.id]?.hundred||0))>0&&<span style={{fontSize:11,color:"var(--text3)"}}>🎾 {(reactions[post.id]?.tennis||0)+(reactions[post.id]?.fire||0)+(reactions[post.id]?.hundred||0)}</span>}
-                    </div>
-                    <div style={{fontSize:13,lineHeight:1.6,color:"var(--text)",fontWeight:300}}>{post.content}</div>
-                  </div>
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    player={player}
+                    reactions={reactions[post.id]}
+                    pollData={pollData[post.id]}
+                    comments={comments[post.id]}
+                    cmText={cmText[post.id]}
+                    expandedCms={!!expandedCms[post.id]}
+                    onToggleCm={onToggleCm}
+                    onCmChange={onCmChange}
+                    onSubmitCm={onSubmitCm}
+                    onDelCm={onDelCm}
+                    onSaveCm={onSaveCm}
+                    onToggleLike={onToggleLike}
+                    onShowLikers={onShowLikers}
+                    onEditPost={onEditPost}
+                    onDelPost={onDelPost}
+                    onVotePoll={onVotePoll}
+                    onOpenProfile={openProfile}
+                  />
                 ))}
               </div>
             )}
@@ -1923,12 +1930,12 @@ export default function App() {
       {/* Bottom nav */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(24px)",borderTop:"1px solid var(--border)",display:"flex",zIndex:50,maxWidth:480,margin:"0 auto",paddingBottom:"env(safe-area-inset-bottom,0px)"}}>
         {navItems.map(item=>(
-          <button key={item.id} onClick={()=>{setTab(item.id);if(item.id==="admin")loadPending();if(item.id==="feed")setNewPostsBanner(0);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 8px 14px",background:"transparent"}}>
+          <button key={item.id} onClick={()=>{if(item.id==="rallies"){setTab("feed");setFeedMode("rallies");}else{setTab(item.id);setFeedMode("feed");if(item.id==="feed")setNewPostsBanner(0);}}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 8px 14px",background:"transparent"}}>
             <div style={{position:"relative"}}>
-              {item.icon(tab===item.id)}
+              {item.icon(item.id==="rallies"?(tab==="feed"&&feedMode==="rallies"):tab===item.id)}
               {item.id==="messages"&&unreadCount>0&&<div style={{position:"absolute",top:-4,right:-4,minWidth:15,height:15,background:"#ef4444",borderRadius:999,fontSize:8,fontWeight:700,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{unreadCount>9?"9+":unreadCount}</div>}
             </div>
-            <span style={{fontSize:9,letterSpacing:"0.06em",textTransform:"uppercase",color:tab===item.id?(item.id==="admin"?"#f59e0b":"var(--green)"):"var(--text3)",fontWeight:tab===item.id?700:400}}>{item.label}</span>
+            <span style={{fontSize:9,letterSpacing:"0.06em",textTransform:"uppercase",color:(item.id==="rallies"?(tab==="feed"&&feedMode==="rallies"):tab===item.id)?"var(--green)":"var(--text3)",fontWeight:tab===item.id?700:400}}>{item.label}</span>
           </button>
         ))}
       </div>
