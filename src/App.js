@@ -1302,6 +1302,7 @@ export default function App() {
   const navItems=[
     {id:"feed",     label:"Home",     icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>},
     {id:"rallies",  label:"Rallies",  icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" fill={a?"var(--green)":"none"} stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinejoin="round"/></svg>},
+    {id:"cities",   label:"Discover", icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8"/><path d="M20 20l-3-3" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round"/></svg>},
     {id:"messages", label:"Messages", icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>},
     {id:"profile",  label:"Profile",  icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8"/><path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round"/></svg>},
   ];
