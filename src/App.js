@@ -339,14 +339,27 @@ const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab, toggleFol
       </div>
       {posts.length>0&&(
         <>
-          <div style={{fontSize:11,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10,fontWeight:500}}>Recent posts</div>
-          {posts.slice(0,5).map(post=>(
+          {posts.filter(p=>p.media_url).length>0&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:8,fontWeight:500}}>Media · {posts.filter(p=>p.media_url).length}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:2,borderRadius:10,overflow:"hidden"}}>
+                {posts.filter(p=>p.media_url).map(post=>(
+                  <div key={post.id} style={{aspectRatio:"1",background:"var(--bg3)"}}>
+                    {post.media_type==="video"?<video src={post.media_url} style={{width:"100%",height:"100%",objectFit:"cover"}} muted/>:<img src={post.media_url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{fontSize:11,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10,fontWeight:500}}>Posts · {posts.length}</div>
+          {posts.map(post=>(
             <div key={post.id} style={{background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:14,padding:"14px",marginBottom:8}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                 <CatBadge category={post.category}/>
                 <span style={{fontSize:11,color:"var(--text3)"}}>{Math.floor((Date.now()-new Date(post.created_at))/86400000)}d ago</span>
+                {post.replies>0&&<span style={{fontSize:11,color:"var(--text3)"}}>💬 {post.replies}</span>}
               </div>
-              <div style={{fontSize:13,lineHeight:1.65,color:"var(--text)"}}>{post.content}</div>
+              <div style={{fontSize:13,lineHeight:1.65,color:"var(--text)",fontWeight:300}}>{post.content}</div>
             </div>
           ))}
         </>
@@ -590,7 +603,7 @@ export default function App() {
   // Follows
   const [following,      setFollowing]      = useState(new Set()); // IDs I follow
   const [followers,      setFollowers]      = useState(new Set()); // IDs that follow me
-  const [feedMode,       setFeedMode]       = useState("all"); // "all" | "following"
+  const [feedMode,       setFeedMode]       = useState("feed"); // "feed" | "rallies"
 
   // Notifications
   const [notifications,  setNotifications]  = useState([]);
@@ -783,7 +796,7 @@ export default function App() {
   };
 
   const loadPosts = async (reset=true) => {
-    if(reset){ setFeedPage(1); setFeedHasMore(true); }
+    if(reset){ setFeedPage(1); setFeedHasMore(true); feedStateRef.current={page:1,loading:false,hasMore:true}; }
     setFeedLoading(true);
     const from = reset ? 0 : 0; // reset always loads first page
     const {data} = await supabase
@@ -799,15 +812,17 @@ export default function App() {
     setFeedLoading(false);
   };
 
+  const feedStateRef = useRef({page:1, loading:false, hasMore:true});
   const loadMorePosts = useCallback(async () => {
-    if(feedLoading || !feedHasMore) return;
+    if(feedStateRef.current.loading || !feedStateRef.current.hasMore) return;
+    feedStateRef.current.loading = true;
     setFeedLoading(true);
-    const nextPage = feedPage + 1;
+    const nextPage = feedStateRef.current.page + 1;
     const from = (nextPage - 1) * FEED_PAGE_SIZE;
     const to   = from + FEED_PAGE_SIZE - 1;
     const {data} = await supabase
       .from("posts")
-      .select("*, players!posts_user_id_fkey(verified,avatar_url)")
+      .select("*, players!posts_user_id_fkey(id,verified,avatar_url)")
       .order("created_at",{ascending:false})
       .range(from, to);
     if(data){
@@ -816,11 +831,15 @@ export default function App() {
         const ids = new Set(prev.map(p=>p.id));
         return [...prev, ...enriched.filter(p=>!ids.has(p.id))];
       });
-      setFeedHasMore(data.length === FEED_PAGE_SIZE);
+      const hasMore = data.length === FEED_PAGE_SIZE;
+      feedStateRef.current.hasMore = hasMore;
+      feedStateRef.current.page = nextPage;
+      setFeedHasMore(hasMore);
       setFeedPage(nextPage);
     }
+    feedStateRef.current.loading = false;
     setFeedLoading(false);
-  },[feedPage, feedLoading, feedHasMore]);
+  },[]);
 
   // ─── Feed realtime subscription ─────────────────────────────
   const subscribeFeed = useCallback(() => {
@@ -851,16 +870,15 @@ export default function App() {
 
   const [newPostsBanner, setNewPostsBanner] = useState(0);
 
-  // IntersectionObserver for infinite scroll
+  // IntersectionObserver for infinite scroll — stable, only mounted once
   useEffect(() => {
-    if(!feedEndRef.current) return;
-    if(feedObserverRef.current) feedObserverRef.current.disconnect();
-    feedObserverRef.current = new IntersectionObserver(
+    const observer = new IntersectionObserver(
       entries => { if(entries[0].isIntersecting) loadMorePosts(); },
-      {threshold: 0.1}
+      {rootMargin:"200px", threshold:0}
     );
-    feedObserverRef.current.observe(feedEndRef.current);
-    return () => feedObserverRef.current?.disconnect();
+    feedObserverRef.current = observer;
+    if(feedEndRef.current) observer.observe(feedEndRef.current);
+    return () => observer.disconnect();
   },[loadMorePosts]);
 
   // Start realtime when player is loaded
@@ -1173,14 +1191,11 @@ export default function App() {
   };
 
   // Feed mode: "all" shows everyone, "following" shows only followed players + self
-  const feedPosts = feedMode==="following"
-    ? posts.filter(p => {
-        // Need player_id on post - filter by user_id matching followed players
-        return p.user_id===playerRef.current?.user_id || following.has(p.player_id) ||
-               [...following].some(fid => p.user_id && fid && p.player_id===fid);
-      })
+  // feedMode "feed" = all posts, "rallies" = video-only fullscreen TikTok-style
+  const feedPosts = feedMode==="rallies"
+    ? posts.filter(p => p.media_type==="video" && p.media_url)
     : posts;
-  const filteredPosts=catFilter==="All"?feedPosts:feedPosts.filter(p=>p.category===catFilter);
+  const filteredPosts = catFilter==="All" ? feedPosts : feedPosts.filter(p=>p.category===catFilter);
   // Reset pagination when filter changes
   useEffect(()=>{ setFeedPage(1); setFeedHasMore(true); },[catFilter]);
   const isAdmin=session?.user?.email===ADMIN_EMAIL;
@@ -1366,16 +1381,63 @@ export default function App() {
       {/* FEED */}
       {tab==="feed"&&(
         <div style={{paddingBottom:120}}>
-          {/* Feed mode toggle */}
+          {/* Main feed tabs */}
           <div style={{display:"flex",gap:0,background:"var(--bg1)",borderBottom:"1px solid var(--border2)"}}>
-            {[["all","✦ For You"],["following","Following"]].map(([mode,label])=>(
-              <button key={mode} onClick={()=>{setFeedMode(mode);setFeedPage(1);setFeedHasMore(true);}} style={{flex:1,padding:"12px 8px",background:"transparent",borderBottom:`2px solid ${feedMode===mode?"var(--green)":"transparent"}`,color:feedMode===mode?"var(--green)":"var(--text3)",fontSize:13,fontWeight:feedMode===mode?600:300,transition:"all 0.15s"}}>
+            {[["feed","Feed"],["rallies","🎬 Rallies"]].map(([mode,label])=>(
+              <button key={mode} onClick={()=>setFeedMode(mode)} style={{flex:1,padding:"13px 8px",background:"transparent",borderBottom:`2px solid ${feedMode===mode?"var(--green)":"transparent"}`,color:feedMode===mode?"var(--green)":"var(--text3)",fontSize:13,fontWeight:feedMode===mode?600:300,letterSpacing:feedMode===mode?"0":"0",transition:"all 0.15s"}}>
                 {label}
-                {mode==="following"&&following.size>0&&<span style={{marginLeft:6,fontSize:10,color:"var(--text3)"}}>({following.size})</span>}
               </button>
             ))}
           </div>
 
+
+          {/* RALLIES - fullscreen vertical video */}
+          {feedMode==="rallies"&&(
+            feedPosts.length===0
+            ? <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"70vh",color:"var(--text3)",gap:12}}>
+                <div style={{fontSize:40}}>🎾</div>
+                <div style={{fontSize:14,fontWeight:300}}>No Rallies yet.</div>
+                <div style={{fontSize:12,color:"var(--text3)",fontWeight:300}}>Post a video to start the first Rally.</div>
+              </div>
+            : <div style={{position:"relative",height:"calc(100vh - 160px)",overflowY:"scroll",scrollSnapType:"y mandatory",scrollbarWidth:"none"}}>
+                {feedPosts.map((post,ri)=>{
+                  const ago=(d)=>{const diff=(Date.now()-new Date(d))/1000;if(diff<60)return"now";if(diff<3600)return`${Math.floor(diff/60)}m`;if(diff<86400)return`${Math.floor(diff/3600)}h`;return`${Math.floor(diff/86400)}d`;};
+                  const rxn=reactions[post.id]||{tennis:0,fire:0,hundred:0,mine:null};
+                  const total=(rxn.tennis||0)+(rxn.fire||0)+(rxn.hundred||0);
+                  return (
+                    <div key={post.id} style={{height:"calc(100vh - 160px)",scrollSnapAlign:"start",position:"relative",background:"#000",flexShrink:0}}>
+                      <video src={post.media_url} style={{width:"100%",height:"100%",objectFit:"cover"}} autoPlay muted loop playsInline/>
+                      {/* Gradient overlay */}
+                      <div style={{position:"absolute",inset:0,background:"linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 50%)"}}/>
+                      {/* Author info bottom left */}
+                      <div style={{position:"absolute",bottom:80,left:16,right:70}}>
+                        <button onClick={()=>openProfile(post.user_id)} style={{display:"flex",alignItems:"center",gap:10,background:"transparent",marginBottom:10}}>
+                          <Avatar src={post.avatar_url} name={post.author} size={36} flag={getFlag(post.country)} verified={post.verified}/>
+                          <div style={{textAlign:"left"}}>
+                            <div style={{fontSize:14,fontWeight:600,color:"#fff"}}>{post.author}</div>
+                            <div style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>#{post.ranking} · {ago(post.created_at)}</div>
+                          </div>
+                        </button>
+                        <div style={{fontSize:14,color:"#fff",lineHeight:1.6,fontWeight:300}}>{post.content}</div>
+                      </div>
+                      {/* Action buttons right side */}
+                      <div style={{position:"absolute",bottom:80,right:12,display:"flex",flexDirection:"column",alignItems:"center",gap:20}}>
+                        <button onClick={()=>onToggleLike(post,"tennis")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,background:"transparent"}}>
+                          <span style={{fontSize:28}}>{rxn.mine?"🎾":"🤍"}</span>
+                          <span style={{fontSize:11,color:"#fff",fontWeight:600}}>{total||""}</span>
+                        </button>
+                        <button onClick={()=>onToggleCm(post.id)} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,background:"transparent"}}>
+                          <span style={{fontSize:28}}>💬</span>
+                          <span style={{fontSize:11,color:"#fff",fontWeight:600}}>{post.replies||""}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+          )}
+
+          {feedMode==="feed"&&<>
           {/* New posts banner */}
           {newPostsBanner>0&&(
             <button onClick={()=>{setNewPostsBanner(0);window.scrollTo({top:0,behavior:"smooth"});}} style={{position:"sticky",top:52,zIndex:40,width:"100%",background:"var(--green)",color:"#000",border:"none",padding:"10px",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:8,animation:"fadeIn 0.2s"}}>
@@ -1469,6 +1531,7 @@ export default function App() {
               You're all caught up ✦
             </div>
           )}
+          </>}
         </div>
       )}
 
@@ -1633,7 +1696,7 @@ export default function App() {
 
       {/* PROFILE */}
       {tab==="profile"&&(()=>{
-        const myPosts=posts.filter(p=>p.author===player?.name);
+        const myPosts=posts.filter(p=>p.user_id===player?.user_id);
         return (
           <div style={{paddingBottom:120}}>
             {ok&&<div style={{fontSize:12,color:"var(--green)",margin:"12px 16px",padding:"10px 14px",background:"rgba(0,208,132,0.08)",borderRadius:10,border:"1px solid rgba(0,208,132,0.2)"}}>{ok}</div>}
@@ -1684,10 +1747,29 @@ export default function App() {
 
             {myPosts.length>0&&(
               <div style={{padding:"20px 20px 0"}}>
-                <div style={{fontSize:11,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10,fontWeight:500}}>Your posts</div>
-                {myPosts.slice(0,5).map(post=>(
+                <div style={{fontSize:11,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10,fontWeight:500}}>Your posts · {myPosts.length}</div>
+                {/* Photo/video grid */}
+                {myPosts.filter(p=>p.media_url).length>0&&(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:2,marginBottom:16,borderRadius:10,overflow:"hidden"}}>
+                    {myPosts.filter(p=>p.media_url).map(post=>(
+                      <div key={post.id} style={{aspectRatio:"1",position:"relative",background:"var(--bg3)"}}>
+                        {post.media_type==="video"
+                          ? <video src={post.media_url} style={{width:"100%",height:"100%",objectFit:"cover"}} muted/>
+                          : <img src={post.media_url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        }
+                        {post.media_type==="video"&&<div style={{position:"absolute",top:4,right:4,fontSize:10,background:"rgba(0,0,0,0.6)",borderRadius:4,padding:"1px 4px",color:"#fff"}}>▶</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {myPosts.map(post=>(
                   <div key={post.id} style={{background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 14px",marginBottom:8}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><CatBadge category={post.category}/><span style={{fontSize:11,color:"var(--text3)",fontWeight:300}}>{Math.floor((Date.now()-new Date(post.created_at))/86400000)}d ago</span></div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                      <CatBadge category={post.category}/>
+                      <span style={{fontSize:11,color:"var(--text3)",fontWeight:300}}>{Math.floor((Date.now()-new Date(post.created_at))/86400000)}d ago</span>
+                      {post.replies>0&&<span style={{fontSize:11,color:"var(--text3)"}}>💬 {post.replies}</span>}
+                      {((reactions[post.id]?.tennis||0)+(reactions[post.id]?.fire||0)+(reactions[post.id]?.hundred||0))>0&&<span style={{fontSize:11,color:"var(--text3)"}}>🎾 {(reactions[post.id]?.tennis||0)+(reactions[post.id]?.fire||0)+(reactions[post.id]?.hundred||0)}</span>}
+                    </div>
                     <div style={{fontSize:13,lineHeight:1.6,color:"var(--text)",fontWeight:300}}>{post.content}</div>
                   </div>
                 ))}
