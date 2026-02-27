@@ -121,13 +121,14 @@ const CSS = `
 `;
 
 // ─── Shared UI ────────────────────────────────────────────────
-const Avatar = memo(({ src, name, size=38, glow=false, flag="" }) => (
+const Avatar = memo(({ src, name, size=38, glow=false, flag="", verified=false }) => (
   <div style={{position:"relative",flexShrink:0,width:size,height:size}}>
     {src
       ? <img src={src} alt={name||""} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",display:"block",boxShadow:glow?"0 0 20px rgba(0,208,132,0.4)":"none",border:glow?"2px solid var(--green)":"none"}}/>
       : <div style={{width:size,height:size,borderRadius:"50%",background:"linear-gradient(135deg,var(--green) 0%,#00b3d4 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*0.38,fontWeight:700,color:"#000",boxShadow:glow?"0 0 20px rgba(0,208,132,0.4)":"none",border:glow?"2px solid var(--green)":"none"}}>{(name||"?")[0].toUpperCase()}</div>
     }
     {flag&&<span style={{position:"absolute",bottom:-2,right:-2,fontSize:size*0.34,lineHeight:1,pointerEvents:"none"}}>{flag}</span>}
+    {verified&&<span style={{position:"absolute",top:-3,right:-3,width:size*0.36,height:size*0.36,background:"var(--green)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*0.22,color:"#000",fontWeight:700,border:"1.5px solid var(--bg)"}}>✓</span>}
   </div>
 ));
 
@@ -146,6 +147,29 @@ const CatBadge = ({ category }) => {
   const cat = getCat(category);
   return <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",padding:"2px 8px",borderRadius:999,color:cat.color,background:cat.bg,border:`1px solid ${cat.color}22`,display:"inline-flex",alignItems:"center",gap:3}}>{cat.icon&&<span>{cat.icon}</span>}{cat.label}</div>;
 };
+
+
+// ─── Confidentiality Screen ───────────────────────────────────
+const ConfidentialityScreen = ({ onAccept }) => (
+  <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:1000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 32px",textAlign:"center"}}>
+    <style>{CSS}</style>
+    <div className="fu" style={{maxWidth:400}}>
+      <div style={{width:72,height:72,background:"rgba(0,208,132,0.08)",border:"2px solid rgba(0,208,132,0.2)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,margin:"0 auto 32px"}}>🔒</div>
+      <div style={{fontSize:32,fontWeight:400,fontFamily:"var(--serif)",marginBottom:12,lineHeight:1.1}}>Confidentiality<br/><span style={{fontStyle:"italic",color:"var(--green)"}}>Agreement</span></div>
+      <p style={{fontSize:14,color:"var(--text2)",lineHeight:1.8,marginBottom:20,fontWeight:300}}>PlayerCircle is a private network exclusively for verified ATP & WTA professionals.</p>
+      <div style={{background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:16,padding:"20px",marginBottom:28,textAlign:"left"}}>
+        {["All content shared here is strictly confidential","Do not share, screenshot or distribute any posts or messages","Respect the privacy of fellow players at all times","Violations result in immediate and permanent removal","This platform is for players only — no agents, coaches or media"].map((t,i)=>(
+          <div key={i} style={{display:"flex",gap:10,marginBottom:i<4?12:0,alignItems:"flex-start"}}>
+            <span style={{color:"var(--green)",fontSize:13,marginTop:1,flexShrink:0}}>✓</span>
+            <span style={{fontSize:13,color:"var(--text2)",lineHeight:1.6,fontWeight:300}}>{t}</span>
+          </div>
+        ))}
+      </div>
+      <GreenBtn onClick={onAccept}>I understand and agree</GreenBtn>
+      <p style={{fontSize:11,color:"var(--text3)",marginTop:16,fontWeight:300}}>By continuing you confirm you are an active ATP or WTA professional.</p>
+    </div>
+  </div>
+);
 
 // ─── ProfileEditModal — standalone so it never re-mounts ─────
 const ProfileEditModal = ({ player, onSave, onClose }) => {
@@ -268,12 +292,12 @@ const LikersModal = memo(({ likers, onClose }) => (
 ));
 
 // ─── PlayerProfileView ────────────────────────────────────────
-const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab }) => (
+const PlayerProfileView = memo(({ p, posts, onClose }) => (
   <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:100,overflowY:"auto"}} className="fi">
     <div style={{position:"sticky",top:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid var(--border2)",padding:"14px 20px",display:"flex",alignItems:"center",gap:12,zIndex:10}}>
       <button onClick={onClose} style={{background:"var(--bg2)",border:"1px solid var(--border)",color:"var(--text2)",borderRadius:10,padding:"8px 14px",fontSize:12}}>← Back</button>
       <div style={{flex:1,fontSize:14,fontWeight:500}}>{p.name}</div>
-      <button onClick={()=>{onClose();openChat(p);setTab("messages");}} style={{background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",color:"var(--green)",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600}}>Message</button>
+      <button style={{background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",color:"var(--green)",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600}}>Message</button>
     </div>
     <div style={{padding:"24px 20px 120px"}}>
       <div style={{display:"flex",gap:16,alignItems:"flex-start",marginBottom:20}}>
@@ -543,11 +567,31 @@ export default function App() {
   const [viewingPlayerPosts, setViewingPlayerPosts] = useState([]);
 
   // Chat
-  const [conversations,  setConversations]  = useState([]);
-  const [activeConv,     setActiveConv]     = useState(null);
-  const [messages,       setMessages]       = useState([]);
-  const [msgText,        setMsgText]        = useState("");
-  const [unreadCount,    setUnreadCount]    = useState(0);
+  const [conversations,    setConversations]    = useState([]);
+  const [activeConv,       setActiveConv]       = useState(null); // {conv, otherPlayer}
+  const [messages,         setMessages]         = useState([]);
+  const [msgText,          setMsgText]          = useState("");
+  const [unreadCount,      setUnreadCount]      = useState(0);
+  const msgEndRef = useRef();
+  const msgSubRef = useRef(null);
+
+  // Notifications
+  const [notifications,  setNotifications]  = useState([]);
+  const [notifCount,     setNotifCount]     = useState(0);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+
+  // Player search
+  const [showSearch,    setShowSearch]    = useState(false);
+  const [searchQuery,   setSearchQuery]   = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  // Chat
+  const [conversations,    setConversations]    = useState([]);
+  const [activeConv,       setActiveConv]       = useState(null); // {conv, otherPlayer}
+  const [messages,         setMessages]         = useState([]);
+  const [msgText,          setMsgText]          = useState("");
+  const [unreadCount,      setUnreadCount]      = useState(0);
   const msgEndRef = useRef();
   const msgSubRef = useRef(null);
 
@@ -586,17 +630,6 @@ export default function App() {
     }
   },[selectedTournament,showMap]);
 
-  // Refs so ALL callbacks have stable identity
-  const playerRef    = useRef(player);
-  const postsRef     = useRef(posts);
-  const cmTextRef    = useRef(cmText);
-  const reactionsRef = useRef(reactions);
-  const pollDataRef  = useRef(pollData);
-  useEffect(()=>{ playerRef.current    = player;    },[player]);
-  useEffect(()=>{ postsRef.current     = posts;     },[posts]);
-  useEffect(()=>{ cmTextRef.current    = cmText;    },[cmText]);
-  useEffect(()=>{ reactionsRef.current = reactions; },[reactions]);
-  useEffect(()=>{ pollDataRef.current  = pollData;  },[pollData]);
 
   // ─── Chat functions ──────────────────────────────────────
   const loadConversations = useCallback(async () => {
@@ -604,7 +637,7 @@ export default function App() {
     const pid = playerRef.current.id;
     const {data} = await supabase
       .from("conversations")
-      .select("*, p1:player1_id(id,name,country,ranking,avatar_url), p2:player2_id(id,name,country,ranking,avatar_url)")
+      .select("*, p1:player1_id(id,name,country,ranking,tour,avatar_url), p2:player2_id(id,name,country,ranking,tour,avatar_url)")
       .or(`player1_id.eq.${pid},player2_id.eq.${pid}`)
       .order("last_message_at", {ascending:false});
     if(data) setConversations(data);
@@ -619,14 +652,6 @@ export default function App() {
     const {count} = await supabase.from("messages").select("id",{count:"exact",head:true}).in("conversation_id",ids).eq("read",false).neq("sender_id",pid);
     setUnreadCount(count||0);
   },[]);
-
-  const loadMessages = async (convId) => {
-    const {data} = await supabase.from("messages").select("*").eq("conversation_id",convId).order("created_at",{ascending:true});
-    if(data) setMessages(data);
-    setTimeout(()=>msgEndRef.current?.scrollIntoView({behavior:"smooth"}),100);
-    await supabase.from("messages").update({read:true}).eq("conversation_id",convId).neq("sender_id",playerRef.current?.id);
-    countUnread();
-  };
 
   const openChat = useCallback(async (otherPlayer) => {
     const myId = playerRef.current?.id;
@@ -660,21 +685,59 @@ export default function App() {
     setMsgText("");
     await supabase.from("messages").insert([{conversation_id:activeConv.conv.id,sender_id,content:text}]);
     await supabase.from("conversations").update({last_message:text,last_message_at:new Date().toISOString()}).eq("id",activeConv.conv.id);
+    // Send notification
+    await supabase.from("notifications").insert([{recipient_id:activeConv.otherPlayer.id,sender_id:playerRef.current?.id,type:"message",message:`${playerRef.current?.name} sent you a message`}]);
     loadConversations();
   },[msgText,activeConv,loadConversations]);
+
+  // ─── Notification functions ───────────────────────────────
+  const loadNotifications = useCallback(async () => {
+    if(!playerRef.current) return;
+    const {data} = await supabase
+      .from("notifications")
+      .select("*, sender:sender_id(name,avatar_url,country)")
+      .eq("recipient_id", playerRef.current.id)
+      .order("created_at",{ascending:false})
+      .limit(30);
+    if(data){
+      setNotifications(data);
+      setNotifCount(data.filter(n=>!n.read).length);
+    }
+  },[]);
+
+  const markNotifsRead = useCallback(async () => {
+    if(!playerRef.current) return;
+    await supabase.from("notifications").update({read:true}).eq("recipient_id",playerRef.current.id).eq("read",false);
+    setNotifCount(0);
+    setNotifications(n=>n.map(x=>({...x,read:true})));
+  },[]);
 
   const loadPlayer = async (uid) => {
     const {data} = await supabase.from("players").select("*").eq("user_id",uid).single();
     if(data){
       setPlayer(data);
       if(data.status==="approved"){
+        if(!data.accepted_terms){ setScreen("confidentiality"); return; }
         await Promise.all([loadPosts(),loadTournaments()]);
         setScreen("home");
         detectLocation();
         loadConversations();
         countUnread();
+        loadNotifications();
       } else setScreen("pending");
     } else setScreen("landing");
+  };
+
+
+  const acceptTerms = async () => {
+    await supabase.from("players").update({accepted_terms:true}).eq("id",player.id);
+    setPlayer(p=>({...p,accepted_terms:true}));
+    await Promise.all([loadPosts(),loadTournaments()]);
+    setScreen("home");
+    detectLocation();
+    loadConversations();
+    countUnread();
+    loadNotifications();
   };
 
   const loadPosts = async () => {
@@ -736,6 +799,20 @@ export default function App() {
     });
     setPollData(map);
   },[]);
+
+
+  // Search debounce
+  useEffect(()=>{
+    if(!searchQuery.trim()){ setSearchResults([]); return; }
+    const t = setTimeout(async()=>{
+      setSearchLoading(true);
+      const q = searchQuery.toLowerCase();
+      const {data} = await supabase.from("players").select("id,name,country,ranking,tour,avatar_url,verified,surface_pref").eq("status","approved").neq("user_id", playerRef.current?.user_id||"").or(`name.ilike.%${q}%,country.ilike.%${q}%`).limit(20);
+      if(data) setSearchResults(data);
+      setSearchLoading(false);
+    }, 300);
+    return ()=>clearTimeout(t);
+  },[searchQuery]);
 
   useEffect(()=>{
     if(posts.length&&player){
@@ -864,6 +941,18 @@ export default function App() {
     if(data) setPosts(p=>p.map(x=>x.id===id?data:x));
   },[]);
 
+  // Refs so ALL callbacks have stable identity — zero re-renders of PostCard
+  const playerRef    = useRef(player);
+  const postsRef     = useRef(posts);
+  const cmTextRef    = useRef(cmText);
+  const reactionsRef = useRef(reactions);
+  const pollDataRef  = useRef(pollData);
+  useEffect(()=>{ playerRef.current    = player;    },[player]);
+  useEffect(()=>{ postsRef.current     = posts;     },[posts]);
+  useEffect(()=>{ cmTextRef.current    = cmText;    },[cmText]);
+  useEffect(()=>{ reactionsRef.current = reactions; },[reactions]);
+  useEffect(()=>{ pollDataRef.current  = pollData;  },[pollData]);
+
   const onToggleLike=useCallback(async(post,reactionId)=>{
     const uid=playerRef.current?.user_id; if(!uid) return;
     const cur=reactionsRef.current[post.id]||{tennis:0,fire:0,hundred:0,mine:null};
@@ -879,6 +968,11 @@ export default function App() {
     else {
       if(cur.mine) await supabase.from("post_reactions").delete().eq("post_id",post.id).eq("user_id",uid);
       await supabase.from("post_reactions").insert([{post_id:post.id,user_id:uid,reaction:reactionId}]);
+      // Notification to post owner
+      if(post.user_id!==uid){
+        const {data:owner}=await supabase.from("players").select("id").eq("user_id",post.user_id).single();
+        if(owner) await supabase.from("notifications").insert([{recipient_id:owner.id,sender_id:playerRef.current?.id,type:"reaction",post_id:post.id,message:`${playerRef.current?.name} reacted to your post`}]);
+      }
     }
   },[]);
 
@@ -961,6 +1055,8 @@ export default function App() {
       <div style={{width:24,height:24,border:"2px solid var(--bg3)",borderTopColor:"var(--green)",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
     </div>
   );
+
+  if(screen==="confidentiality") return <ConfidentialityScreen onAccept={acceptTerms}/>;
 
   if(screen==="landing") return (
     <div style={{background:"var(--bg)",minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"60px 24px",textAlign:"center",position:"relative",overflow:"hidden"}}>
@@ -1050,8 +1146,8 @@ export default function App() {
   // ─── BOTTOM NAV ───────────────────────────────────────────
   const navItems=[
     {id:"feed",    label:"Home",    icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>},
-    {id:"messages",label:"Messages",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>,badge:unreadCount>0},
     {id:"cities",  label:"Discover",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8"/><path d="M20 20l-3-3" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round"/></svg>},
+    {id:"messages",label:"Messages",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>},
     {id:"profile", label:"Profile", icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8"/><path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" stroke={a?"var(--green)":"var(--text3)"} strokeWidth="1.8" strokeLinecap="round"/></svg>},
     ...(isAdmin?[{id:"admin",label:"Admin",icon:(a)=><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke={a?"#f59e0b":"var(--text3)"} strokeWidth="1.8" strokeLinejoin="round"/></svg>}]:[]),
   ];
@@ -1066,10 +1162,62 @@ export default function App() {
       {likersModal&&<LikersModal likers={likers} onClose={()=>setLikersModal(null)}/>}
       {viewingPlayer&&<PlayerProfileView p={viewingPlayer} posts={viewingPlayerPosts} onClose={()=>{setViewingPlayer(null);setViewingPlayerPosts([]);}} openChat={openChat} setTab={setTab}/>}
 
+      {/* Search + Notif overlays */}
+      {/* Search overlay */}
+      {showSearch&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:200,backdropFilter:"blur(12px)"}} onClick={()=>{setShowSearch(false);setSearchQuery("");}}>
+          <div style={{padding:"60px 20px 20px"}} onClick={e=>e.stopPropagation()}>
+            <input autoFocus style={{width:"100%",background:"var(--bg1)",border:"1px solid var(--green)",borderRadius:14,padding:"14px 18px",color:"var(--text)",fontSize:16,marginBottom:16}} placeholder="Search players by name or country..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}/>
+            {searchLoading&&<div style={{textAlign:"center",color:"var(--text3)",padding:20}}>Searching...</div>}
+            {searchResults.map(p=>(
+              <button key={p.id} onClick={()=>{setShowSearch(false);setSearchQuery("");openProfile(p.user_id||p.id);}} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"12px 16px",background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:14,marginBottom:8,textAlign:"left"}}>
+                <Avatar src={p.avatar_url} name={p.name} size={42} flag={getFlag(p.country)} verified={p.verified}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14,fontWeight:500,display:"flex",alignItems:"center",gap:6}}>{p.name}{p.verified&&<span style={{fontSize:10,color:"var(--green)"}}>✓</span>}</div>
+                  <div style={{fontSize:11,color:"var(--text3)"}}>#{p.ranking} · {p.tour} · {p.country}</div>
+                  {p.surface_pref&&<div style={{fontSize:10,color:SURFACE_COLOR[p.surface_pref]||"var(--text3)",marginTop:2}}>{p.surface_pref}</div>}
+                </div>
+              </button>
+            ))}
+            {!searchLoading&&searchQuery&&searchResults.length===0&&<div style={{textAlign:"center",color:"var(--text3)",padding:20,fontSize:13}}>No players found for "{searchQuery}"</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Notifications panel */}
+      {showNotifPanel&&(
+        <div className="fi" style={{position:"fixed",top:58,right:0,width:"min(100vw,400px)",maxHeight:"70vh",background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:"0 0 0 20px",zIndex:150,overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.6)"}}>
+          <div style={{padding:"16px 20px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border2)"}}>
+            <div style={{fontSize:16,fontWeight:500,fontFamily:"var(--serif)"}}>Notifications</div>
+            <button onClick={()=>setShowNotifPanel(false)} style={{background:"transparent",color:"var(--text3)",fontSize:18}}>✕</button>
+          </div>
+          {notifications.length===0&&<div style={{padding:"40px 20px",textAlign:"center",color:"var(--text3)",fontSize:13}}>No notifications yet.</div>}
+          {notifications.map((n,i)=>{
+            const ago=(d)=>{const diff=(Date.now()-new Date(d))/1000;if(diff<60)return"now";if(diff<3600)return`${Math.floor(diff/60)}m`;if(diff<86400)return`${Math.floor(diff/3600)}h`;return`${Math.floor(diff/86400)}d`;};
+            const icon = n.type==="message"?"💬":n.type==="reaction"?"🎾":"💬";
+            return (
+              <div key={n.id||i} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px 20px",borderBottom:"1px solid var(--border2)",background:n.read?"transparent":"rgba(0,208,132,0.04)"}}>
+                <div style={{fontSize:20,flexShrink:0,marginTop:2}}>{icon}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,color:"var(--text)",lineHeight:1.5}}>{n.message}</div>
+                  <div style={{fontSize:10,color:"var(--text3)",marginTop:3}}>{ago(n.created_at)}</div>
+                </div>
+                {!n.read&&<div style={{width:7,height:7,borderRadius:"50%",background:"var(--green)",flexShrink:0,marginTop:5}}/>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Top bar */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 20px",borderBottom:"1px solid var(--border2)",background:"rgba(10,10,11,0.95)",position:"sticky",top:0,zIndex:30,backdropFilter:"blur(24px)"}}>
         <div style={{fontSize:14,letterSpacing:"0.12em",color:"var(--green)",fontWeight:500,textTransform:"uppercase",fontFamily:"var(--serif)"}}>PlayerCircle</div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={()=>setShowSearch(s=>!s)} style={{background:"transparent",color:"var(--text3)",fontSize:18,padding:"4px",position:"relative"}}>🔍</button>
+          <button onClick={()=>{setShowNotifPanel(p=>!p);if(!showNotifPanel)markNotifsRead();}} style={{background:"transparent",color:"var(--text3)",fontSize:18,padding:"4px",position:"relative"}}>
+            🔔
+            {notifCount>0&&<div style={{position:"absolute",top:0,right:0,width:14,height:14,background:"#ef4444",borderRadius:"50%",fontSize:8,fontWeight:700,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>{notifCount>9?"9+":notifCount}</div>}
+          </button>
           <span style={{fontSize:18}}>{getFlag(player?.country)}</span>
           <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",padding:"4px 12px",borderRadius:999,color:"var(--green)",background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)"}}>#{player?.ranking} {player?.tour}</div>
         </div>
@@ -1395,101 +1543,68 @@ export default function App() {
         );
       })()}
 
+      
       {/* MESSAGES */}
-      {tab==="messages"&&(()=>{
-        const myId = player?.id;
-        const ago = (d) => {
-          const diff=(Date.now()-new Date(d))/1000;
-          if(diff<60)return"now";if(diff<3600)return`${Math.floor(diff/60)}m`;
-          if(diff<86400)return`${Math.floor(diff/3600)}h`;return`${Math.floor(diff/86400)}d`;
-        };
-
-        // Active conversation view
-        if(activeConv){
-          const {conv, otherPlayer} = activeConv;
-          return (
-            <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 114px)"}}>
-              {/* Conv header */}
-              <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderBottom:"1px solid var(--border2)",background:"var(--bg1)",flexShrink:0}}>
-                <button onClick={()=>{setActiveConv(null);if(msgSubRef.current){supabase.removeChannel(msgSubRef.current);msgSubRef.current=null;}loadConversations();}} style={{background:"transparent",color:"var(--text3)",fontSize:13,padding:"4px 0"}}>←</button>
-                <Avatar src={otherPlayer.avatar_url} name={otherPlayer.name} size={36} flag={getFlag(otherPlayer.country)}/>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:14,fontWeight:500}}>{otherPlayer.name}</div>
-                  <div style={{fontSize:11,color:"var(--text3)"}}>#{otherPlayer.ranking} · {otherPlayer.tour}</div>
+      {tab==="messages"&&(
+        <div style={{paddingBottom:90,height:"calc(100vh - 114px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          {!activeConv?(
+            <div style={{flex:1,overflowY:"auto",padding:"12px 0"}}>
+              <div style={{padding:"0 20px 16px",fontSize:22,fontFamily:"var(--serif)",fontWeight:400}}>Messages</div>
+              {conversations.length===0&&<div style={{textAlign:"center",padding:"60px 20px",color:"var(--text3)",fontSize:13}}>No conversations yet.<br/>Message a player from their profile.</div>}
+              {conversations.map(conv=>{
+                const other = conv.player1_id===player?.id?conv.p2:conv.p1;
+                const lastMsg = conv.last_message;
+                const lastAt = conv.last_message_at;
+                const ago=(d)=>{if(!d)return"";const diff=(Date.now()-new Date(d))/1000;if(diff<60)return"now";if(diff<3600)return`${Math.floor(diff/60)}m`;if(diff<86400)return`${Math.floor(diff/3600)}h`;return`${Math.floor(diff/86400)}d`;};
+                return(
+                  <button key={conv.id} onClick={()=>openChat(other)} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"12px 20px",background:"transparent",border:"none",borderBottom:"1px solid var(--border2)",textAlign:"left"}}>
+                    <Avatar src={other?.avatar_url} name={other?.name} size={46} flag={getFlag(other?.country)}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3}}>
+                        <span style={{fontSize:14,fontWeight:500}}>{other?.name}</span>
+                        <span style={{fontSize:10,color:"var(--text3)"}}>{ago(lastAt)}</span>
+                      </div>
+                      <div style={{fontSize:12,color:"var(--text3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:300}}>{lastMsg||"Start a conversation"}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ):(
+            <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+              <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border2)",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+                <button onClick={()=>{setActiveConv(null);loadConversations();countUnread();}} style={{background:"var(--bg2)",border:"1px solid var(--border)",color:"var(--text2)",borderRadius:10,padding:"7px 14px",fontSize:12}}>← Back</button>
+                <Avatar src={activeConv.otherPlayer?.avatar_url} name={activeConv.otherPlayer?.name} size={36} flag={getFlag(activeConv.otherPlayer?.country)}/>
+                <div>
+                  <div style={{fontSize:14,fontWeight:500}}>{activeConv.otherPlayer?.name}</div>
+                  <div style={{fontSize:11,color:"var(--text3)"}}>#{activeConv.otherPlayer?.ranking} · {activeConv.otherPlayer?.tour}</div>
                 </div>
               </div>
-              {/* Messages */}
-              <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:8}}>
-                {messages.length===0&&(
-                  <div style={{textAlign:"center",color:"var(--text3)",fontSize:13,marginTop:40,fontWeight:300}}>
-                    <div style={{fontSize:32,marginBottom:12}}>💬</div>
-                    Start the conversation
-                  </div>
-                )}
+              <div style={{flex:1,overflowY:"auto",padding:"16px"}}>
                 {messages.map((m,i)=>{
-                  const mine = m.sender_id===myId;
-                  return (
-                    <div key={m.id||i} style={{display:"flex",justifyContent:mine?"flex-end":"flex-start"}}>
-                      <div style={{maxWidth:"75%",background:mine?"var(--green)":"var(--bg2)",color:mine?"#000":"var(--text)",borderRadius:mine?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"10px 14px",fontSize:13,lineHeight:1.55,fontWeight:300,border:mine?"none":"1px solid var(--border)"}}>
-                        {m.content}
-                        <div style={{fontSize:9,color:mine?"rgba(0,0,0,0.5)":"var(--text3)",marginTop:4,textAlign:"right"}}>{ago(m.created_at)}</div>
+                  const isMe = m.sender_id===player?.id;
+                  const ago=(d)=>{const diff=(Date.now()-new Date(d))/1000;if(diff<60)return"now";if(diff<3600)return`${Math.floor(diff/60)}m`;if(diff<86400)return`${Math.floor(diff/3600)}h`;return`${Math.floor(diff/86400)}d`;};
+                  return(
+                    <div key={m.id||i} style={{display:"flex",justifyContent:isMe?"flex-end":"flex-start",marginBottom:10}}>
+                      <div style={{maxWidth:"75%",background:isMe?"var(--green)":"var(--bg2)",color:isMe?"#000":"var(--text)",borderRadius:isMe?"14px 14px 4px 14px":"14px 14px 14px 4px",padding:"10px 14px",border:isMe?"none":"1px solid var(--border)"}}>
+                        <div style={{fontSize:14,lineHeight:1.55,fontWeight:isMe?500:300}}>{m.content}</div>
+                        <div style={{fontSize:9,color:isMe?"rgba(0,0,0,0.5)":"var(--text3)",marginTop:4,textAlign:"right"}}>{ago(m.created_at)}</div>
                       </div>
                     </div>
                   );
                 })}
                 <div ref={msgEndRef}/>
               </div>
-              {/* Input */}
-              <div style={{padding:"12px 16px",borderTop:"1px solid var(--border2)",background:"var(--bg1)",display:"flex",gap:10,alignItems:"center",flexShrink:0}}>
-                <input
-                  style={{flex:1,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:999,padding:"11px 16px",color:"var(--text)",fontSize:14,fontWeight:300}}
-                  placeholder="Message..."
-                  value={msgText}
-                  onChange={e=>setMsgText(e.target.value)}
-                  onKeyDown={e=>e.key==="Enter"&&sendMessage()}
-                  autoFocus
-                />
-                <button onClick={sendMessage} disabled={!msgText.trim()} style={{background:msgText.trim()?"var(--green)":"var(--bg3)",color:msgText.trim()?"#000":"var(--text3)",border:"none",borderRadius:"50%",width:40,height:40,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:msgText.trim()?"0 0 16px var(--glow)":"none",transition:"all 0.15s"}}>↑</button>
+              <div style={{padding:"12px 16px",borderTop:"1px solid var(--border2)",display:"flex",gap:10,alignItems:"center",flexShrink:0,background:"var(--bg1)"}}>
+                <input style={{flex:1,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:999,padding:"10px 16px",color:"var(--text)",fontSize:14}} placeholder="Type a message..." value={msgText} onChange={e=>setMsgText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()}/>
+                <button onClick={sendMessage} disabled={!msgText.trim()} style={{width:40,height:40,borderRadius:"50%",background:msgText.trim()?"var(--green)":"var(--bg3)",color:msgText.trim()?"#000":"var(--text3)",border:"none",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,flexShrink:0}}>↑</button>
               </div>
             </div>
-          );
-        }
+          )}
+        </div>
+      )}
 
-        // Conversations list
-        return (
-          <div style={{paddingBottom:120}}>
-            <div style={{padding:"20px 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div style={{fontSize:20,fontFamily:"var(--serif)"}}>Messages</div>
-              {unreadCount>0&&<div style={{fontSize:11,color:"var(--green)",background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",borderRadius:999,padding:"3px 10px",fontWeight:600}}>{unreadCount} new</div>}
-            </div>
-            {conversations.length===0&&(
-              <div style={{textAlign:"center",padding:"60px 24px",color:"var(--text3)"}}>
-                <div style={{fontSize:36,marginBottom:12}}>💬</div>
-                <div style={{fontSize:14,fontWeight:300,marginBottom:8}}>No conversations yet</div>
-                <div style={{fontSize:12,color:"var(--text3)",fontWeight:300}}>Tap Message on any player's profile to start a conversation.</div>
-              </div>
-            )}
-            {conversations.map(conv=>{
-              const other = conv.p1?.id===myId ? conv.p2 : conv.p1;
-              if(!other) return null;
-              return (
-                <button key={conv.id} onClick={()=>openChat(other)} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"14px 20px",borderBottom:"1px solid var(--border2)",background:"transparent",textAlign:"left"}}>
-                  <Avatar src={other.avatar_url} name={other.name} size={46} flag={getFlag(other.country)}/>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
-                      <span style={{fontSize:14,fontWeight:500}}>{other.name}</span>
-                      <span style={{fontSize:10,color:"var(--text3)",flexShrink:0}}>{conv.last_message_at?ago(conv.last_message_at):""}</span>
-                    </div>
-                    <div style={{fontSize:12,color:"var(--text3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:300}}>{conv.last_message||"New conversation"}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        );
-      })()}
-
-      {/* ADMIN */}
+{/* ADMIN */}
       {tab==="admin"&&(
         <div style={{paddingBottom:120}}>
           <div style={{padding:"20px 20px 12px",fontSize:11,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",fontWeight:600}}>Pending ({pending.length})</div>
@@ -1520,9 +1635,11 @@ export default function App() {
       {/* Bottom nav */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(24px)",borderTop:"1px solid var(--border)",display:"flex",zIndex:50,maxWidth:480,margin:"0 auto",paddingBottom:"env(safe-area-inset-bottom,0px)"}}>
         {navItems.map(item=>(
-          <button key={item.id} onClick={()=>{setTab(item.id);if(item.id==="admin")loadPending();if(item.id==="messages"){loadConversations();countUnread();}}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 8px 14px",background:"transparent",position:"relative"}}>
-            {item.icon(tab===item.id)}
-            {item.badge&&<div style={{position:"absolute",top:8,right:"50%",marginRight:-14,width:16,height:16,background:"#ef4444",borderRadius:"50%",fontSize:9,fontWeight:700,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>{unreadCount>9?"9+":unreadCount}</div>}
+          <button key={item.id} onClick={()=>{setTab(item.id);if(item.id==="admin")loadPending();}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 8px 14px",background:"transparent"}}>
+            <div style={{position:"relative"}}>
+              {item.icon(tab===item.id)}
+              {item.id==="messages"&&unreadCount>0&&<div style={{position:"absolute",top:-4,right:-4,minWidth:15,height:15,background:"#ef4444",borderRadius:999,fontSize:8,fontWeight:700,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{unreadCount>9?"9+":unreadCount}</div>}
+            </div>
             <span style={{fontSize:9,letterSpacing:"0.06em",textTransform:"uppercase",color:tab===item.id?(item.id==="admin"?"#f59e0b":"var(--green)"):"var(--text3)",fontWeight:tab===item.id?700:400}}>{item.label}</span>
           </button>
         ))}
