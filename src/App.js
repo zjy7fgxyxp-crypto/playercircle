@@ -292,7 +292,7 @@ const LikersModal = memo(({ likers, onClose }) => (
 ));
 
 // ─── PlayerProfileView ────────────────────────────────────────
-const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab }) => (
+const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab, toggleFollow, following }) => (
   <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:100,overflowY:"auto"}} className="fi">
     <div style={{position:"sticky",top:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid var(--border2)",padding:"14px 20px",display:"flex",alignItems:"center",gap:12,zIndex:10}}>
       <button onClick={onClose} style={{background:"var(--bg2)",border:"1px solid var(--border)",color:"var(--text2)",borderRadius:10,padding:"8px 14px",fontSize:12}}>← Back</button>
@@ -305,10 +305,11 @@ const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab }) => (
         <div style={{flex:1}}>
           <div style={{fontSize:22,fontWeight:400,fontFamily:"var(--serif)",marginBottom:4}}>{p.name}</div>
           <div style={{fontSize:13,color:"var(--text2)",marginBottom:8}}>{p.country} · {p.tour}{p.pro_since?` · Pro since ${p.pro_since}`:""}</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
             <span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:999,color:"var(--green)",background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)"}}>Rank #{p.ranking}</span>
             {p.surface_pref&&<span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:999,color:SURFACE_COLOR[p.surface_pref],background:`${SURFACE_COLOR[p.surface_pref]}15`,border:`1px solid ${SURFACE_COLOR[p.surface_pref]}33`}}>{p.surface_pref}</span>}
           </div>
+          {toggleFollow&&<button onClick={()=>toggleFollow(p.id)} style={{padding:"8px 20px",borderRadius:10,fontSize:13,fontWeight:600,background:following?.has(p.id)?"var(--bg2)":"var(--green)",color:following?.has(p.id)?"var(--text2)":"#000",border:following?.has(p.id)?"1px solid var(--border)":"none",transition:"all 0.15s"}}>{following?.has(p.id)?"Following":"Follow"}</button>}
         </div>
       </div>
       {p.current_tournament&&(
@@ -328,11 +329,11 @@ const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab }) => (
           ))}
         </div>
       )}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}}>
-        {[["Posts",posts.length],["Ranking",`#${p.ranking}`]].map(([l,v])=>(
-          <div key={l} style={{background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:12,padding:"14px",textAlign:"center"}}>
-            <div style={{fontSize:22,fontWeight:600,color:"var(--green)",fontFamily:"var(--serif)"}}>{v}</div>
-            <div style={{fontSize:9,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",marginTop:3}}>{l}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:20}}>
+        {[["Posts",posts.length],["Rank",`#${p.ranking}`],["Followers",p.followerCount??0],["Following",p.followingCount??0]].map(([l,v])=>(
+          <div key={l} style={{background:"var(--bg1)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 6px",textAlign:"center"}}>
+            <div style={{fontSize:18,fontWeight:600,color:"var(--green)",fontFamily:"var(--serif)"}}>{v}</div>
+            <div style={{fontSize:9,color:"var(--text3)",letterSpacing:"0.06em",textTransform:"uppercase",marginTop:3}}>{l}</div>
           </div>
         ))}
       </div>
@@ -586,6 +587,11 @@ export default function App() {
   const [composeSearch,  setComposeSearch]  = useState("");
   const [composeResults, setComposeResults] = useState([]);
 
+  // Follows
+  const [following,      setFollowing]      = useState(new Set()); // IDs I follow
+  const [followers,      setFollowers]      = useState(new Set()); // IDs that follow me
+  const [feedMode,       setFeedMode]       = useState("all"); // "all" | "following"
+
   // Notifications
   const [notifications,  setNotifications]  = useState([]);
   const [notifCount,     setNotifCount]     = useState(0);
@@ -714,6 +720,38 @@ export default function App() {
     setNotifications(n=>n.map(x=>({...x,read:true})));
   },[]);
 
+  // ─── Follow functions ───────────────────────────────────────
+  const loadFollows = useCallback(async () => {
+    if(!playerRef.current) return;
+    const pid = playerRef.current.id;
+    const [{data:fing},{data:fers}] = await Promise.all([
+      supabase.from("follows").select("following_id").eq("follower_id",pid),
+      supabase.from("follows").select("follower_id").eq("following_id",pid),
+    ]);
+    if(fing) setFollowing(new Set(fing.map(f=>f.following_id)));
+    if(fers) setFollowers(new Set(fers.map(f=>f.follower_id)));
+  },[]);
+
+  const toggleFollow = useCallback(async (targetPlayerId) => {
+    const myId = playerRef.current?.id;
+    if(!myId || targetPlayerId===myId) return;
+    const isFollowing = following.has(targetPlayerId);
+    if(isFollowing){
+      await supabase.from("follows").delete().eq("follower_id",myId).eq("following_id",targetPlayerId);
+      setFollowing(s=>{ const n=new Set(s); n.delete(targetPlayerId); return n; });
+    } else {
+      await supabase.from("follows").insert([{follower_id:myId, following_id:targetPlayerId}]);
+      setFollowing(s=>new Set([...s, targetPlayerId]));
+      // Notification to followed player
+      await supabase.from("notifications").insert([{
+        recipient_id: targetPlayerId,
+        sender_id: myId,
+        type: "follow",
+        message: `${playerRef.current?.name} started following you`
+      }]);
+    }
+  },[following]);
+
   const loadPlayer = async (uid) => {
     const {data} = await supabase.from("players").select("*").eq("user_id",uid).single();
     if(data){
@@ -726,6 +764,7 @@ export default function App() {
         loadConversations();
         countUnread();
         loadNotifications();
+        loadFollows();
       } else setScreen("pending");
     } else setScreen("landing");
   };
@@ -740,6 +779,7 @@ export default function App() {
     loadConversations();
     countUnread();
     loadNotifications();
+    loadFollows();
   };
 
   const loadPosts = async (reset=true) => {
@@ -748,11 +788,11 @@ export default function App() {
     const from = reset ? 0 : 0; // reset always loads first page
     const {data} = await supabase
       .from("posts")
-      .select("*, players!posts_user_id_fkey(verified,avatar_url)")
+      .select("*, players!posts_user_id_fkey(id,verified,avatar_url)")
       .order("created_at",{ascending:false})
       .range(0, FEED_PAGE_SIZE - 1);
     if(data){
-      const enriched = data.map(p=>({...p, verified:p.players?.verified||false, avatar_url:p.avatar_url||p.players?.avatar_url}));
+      const enriched = data.map(p=>({...p, player_id:p.players?.id||null, verified:p.players?.verified||false, avatar_url:p.avatar_url||p.players?.avatar_url}));
       setPosts(enriched);
       setFeedHasMore(data.length === FEED_PAGE_SIZE);
     }
@@ -771,7 +811,7 @@ export default function App() {
       .order("created_at",{ascending:false})
       .range(from, to);
     if(data){
-      const enriched = data.map(p=>({...p, verified:p.players?.verified||false, avatar_url:p.avatar_url||p.players?.avatar_url}));
+      const enriched = data.map(p=>({...p, player_id:p.players?.id||null, verified:p.players?.verified||false, avatar_url:p.avatar_url||p.players?.avatar_url}));
       setPosts(prev => {
         const ids = new Set(prev.map(p=>p.id));
         return [...prev, ...enriched.filter(p=>!ids.has(p.id))];
@@ -1111,7 +1151,12 @@ export default function App() {
   const openProfile=useCallback(async(userId)=>{
     const {data:p}=await supabase.from("players").select("*").eq("user_id",userId).single();
     if(p){
-      setViewingPlayer(p);
+      // Fetch follower + following counts in parallel
+      const [{count:fersCount},{count:fingCount}] = await Promise.all([
+        supabase.from("follows").select("id",{count:"exact",head:true}).eq("following_id",p.id),
+        supabase.from("follows").select("id",{count:"exact",head:true}).eq("follower_id",p.id),
+      ]);
+      setViewingPlayer({...p, followerCount:fersCount||0, followingCount:fingCount||0});
       const {data:pp}=await supabase.from("posts").select("*").eq("user_id",userId).order("created_at",{ascending:false}).limit(10);
       if(pp) setViewingPlayerPosts(pp);
     }
@@ -1127,7 +1172,15 @@ export default function App() {
     setInviteLink(`${window.location.origin}?invite=${c}`);
   };
 
-  const filteredPosts=catFilter==="All"?posts:posts.filter(p=>p.category===catFilter);
+  // Feed mode: "all" shows everyone, "following" shows only followed players + self
+  const feedPosts = feedMode==="following"
+    ? posts.filter(p => {
+        // Need player_id on post - filter by user_id matching followed players
+        return p.user_id===playerRef.current?.user_id || following.has(p.player_id) ||
+               [...following].some(fid => p.user_id && fid && p.player_id===fid);
+      })
+    : posts;
+  const filteredPosts=catFilter==="All"?feedPosts:feedPosts.filter(p=>p.category===catFilter);
   // Reset pagination when filter changes
   useEffect(()=>{ setFeedPage(1); setFeedHasMore(true); },[catFilter]);
   const isAdmin=session?.user?.email===ADMIN_EMAIL;
@@ -1247,7 +1300,7 @@ export default function App() {
       {/* Modals */}
       {editProfile&&<ProfileEditModal player={player} onSave={saveProfile} onClose={()=>setEditProfile(false)}/>}
       {likersModal&&<LikersModal likers={likers} onClose={()=>setLikersModal(null)}/>}
-      {viewingPlayer&&<PlayerProfileView p={viewingPlayer} posts={viewingPlayerPosts} onClose={()=>{setViewingPlayer(null);setViewingPlayerPosts([]);}} openChat={openChat} setTab={setTab}/>}
+      {viewingPlayer&&<PlayerProfileView p={viewingPlayer} posts={viewingPlayerPosts} onClose={()=>{setViewingPlayer(null);setViewingPlayerPosts([]);}} openChat={openChat} setTab={setTab} toggleFollow={toggleFollow} following={following}/>}
 
       {/* Search + Notif overlays */}
       {/* Search overlay */}
@@ -1313,6 +1366,16 @@ export default function App() {
       {/* FEED */}
       {tab==="feed"&&(
         <div style={{paddingBottom:120}}>
+          {/* Feed mode toggle */}
+          <div style={{display:"flex",gap:0,background:"var(--bg1)",borderBottom:"1px solid var(--border2)"}}>
+            {[["all","✦ For You"],["following","Following"]].map(([mode,label])=>(
+              <button key={mode} onClick={()=>{setFeedMode(mode);setFeedPage(1);setFeedHasMore(true);}} style={{flex:1,padding:"12px 8px",background:"transparent",borderBottom:`2px solid ${feedMode===mode?"var(--green)":"transparent"}`,color:feedMode===mode?"var(--green)":"var(--text3)",fontSize:13,fontWeight:feedMode===mode?600:300,transition:"all 0.15s"}}>
+                {label}
+                {mode==="following"&&following.size>0&&<span style={{marginLeft:6,fontSize:10,color:"var(--text3)"}}>({following.size})</span>}
+              </button>
+            ))}
+          </div>
+
           {/* New posts banner */}
           {newPostsBanner>0&&(
             <button onClick={()=>{setNewPostsBanner(0);window.scrollTo({top:0,behavior:"smooth"});}} style={{position:"sticky",top:52,zIndex:40,width:"100%",background:"var(--green)",color:"#000",border:"none",padding:"10px",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:8,animation:"fadeIn 0.2s"}}>
@@ -1598,11 +1661,11 @@ export default function App() {
                 </div>
               )}
               {player?.bio&&<div style={{fontSize:13,color:"var(--text2)",lineHeight:1.75,fontWeight:300,marginBottom:16}}>{player.bio}</div>}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                {[["Posts",myPosts.length],["Ranking",`#${player?.ranking}`]].map(([l,v])=>(
-                  <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"12px",textAlign:"center",border:"1px solid var(--border2)"}}>
-                    <div style={{fontSize:20,fontWeight:600,color:"var(--green)",fontFamily:"var(--serif)"}}>{v}</div>
-                    <div style={{fontSize:9,color:"var(--text3)",letterSpacing:"0.08em",textTransform:"uppercase",marginTop:2}}>{l}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                {[["Posts",myPosts.length],["Rank",`#${player?.ranking}`],["Followers",followers.size],["Following",following.size]].map(([l,v])=>(
+                  <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"10px 6px",textAlign:"center",border:"1px solid var(--border2)"}}>
+                    <div style={{fontSize:18,fontWeight:600,color:"var(--green)",fontFamily:"var(--serif)"}}>{v}</div>
+                    <div style={{fontSize:9,color:"var(--text3)",letterSpacing:"0.06em",textTransform:"uppercase",marginTop:2}}>{l}</div>
                   </div>
                 ))}
               </div>
