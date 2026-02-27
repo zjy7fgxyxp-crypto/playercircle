@@ -292,16 +292,16 @@ const LikersModal = memo(({ likers, onClose }) => (
 ));
 
 // ─── PlayerProfileView ────────────────────────────────────────
-const PlayerProfileView = memo(({ p, posts, onClose }) => (
+const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab }) => (
   <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:100,overflowY:"auto"}} className="fi">
     <div style={{position:"sticky",top:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid var(--border2)",padding:"14px 20px",display:"flex",alignItems:"center",gap:12,zIndex:10}}>
       <button onClick={onClose} style={{background:"var(--bg2)",border:"1px solid var(--border)",color:"var(--text2)",borderRadius:10,padding:"8px 14px",fontSize:12}}>← Back</button>
-      <div style={{flex:1,fontSize:14,fontWeight:500}}>{p.name}</div>
-      <button style={{background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",color:"var(--green)",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600}}>Message</button>
+      <div style={{flex:1,fontSize:14,fontWeight:500,display:"flex",alignItems:"center",gap:6}}>{p.name}{p.verified&&<span style={{fontSize:11,color:"var(--green)",background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",borderRadius:999,padding:"2px 7px",fontWeight:700}}>✓</span>}</div>
+      {openChat&&<button onClick={()=>{onClose();openChat(p);if(setTab)setTab("messages");}} style={{background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",color:"var(--green)",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600}}>Message</button>}
     </div>
     <div style={{padding:"24px 20px 120px"}}>
       <div style={{display:"flex",gap:16,alignItems:"flex-start",marginBottom:20}}>
-        <Avatar src={p.avatar_url} name={p.name} size={72} glow flag={getFlag(p.country)}/>
+        <Avatar src={p.avatar_url} name={p.name} size={72} glow flag={getFlag(p.country)} verified={p.verified}/>
         <div style={{flex:1}}>
           <div style={{fontSize:22,fontWeight:400,fontFamily:"var(--serif)",marginBottom:4}}>{p.name}</div>
           <div style={{fontSize:13,color:"var(--text2)",marginBottom:8}}>{p.country} · {p.tour}{p.pro_since?` · Pro since ${p.pro_since}`:""}</div>
@@ -382,7 +382,7 @@ const PostCard = memo(({ post, player, reactions, pollData, comments, cmText, ex
       {/* Header */}
       <div style={{padding:"14px 16px 0",display:"flex",alignItems:"flex-start",gap:10}}>
         <button onClick={()=>post.user_id!==player?.user_id&&onOpenProfile(post.user_id)} style={{background:"transparent",padding:0,flexShrink:0}}>
-          <Avatar name={post.author} size={38} flag={getFlag(post.country)}/>
+          <Avatar src={post.avatar_url} name={post.author} size={38} flag={getFlag(post.country)} verified={post.verified}/>
         </button>
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -575,6 +575,10 @@ export default function App() {
   const msgEndRef = useRef();
   const msgSubRef = useRef(null);
 
+  const [showCompose,    setShowCompose]    = useState(false);
+  const [composeSearch,  setComposeSearch]  = useState("");
+  const [composeResults, setComposeResults] = useState([]);
+
   // Notifications
   const [notifications,  setNotifications]  = useState([]);
   const [notifCount,     setNotifCount]     = useState(0);
@@ -732,8 +736,14 @@ export default function App() {
   };
 
   const loadPosts = async () => {
-    const {data} = await supabase.from("posts").select("*").order("created_at",{ascending:false});
-    if(data) setPosts(data);
+    const {data} = await supabase
+      .from("posts")
+      .select("*, players!posts_user_id_fkey(verified,avatar_url)")
+      .order("created_at",{ascending:false});
+    if(data){
+      const enriched = data.map(p=>({...p, verified:p.players?.verified||false, avatar_url:p.avatar_url||p.players?.avatar_url}));
+      setPosts(enriched);
+    }
   };
 
   const loadTournaments = async () => {
@@ -1025,7 +1035,8 @@ export default function App() {
   },[]);
 
   const approve=async(id)=>{await supabase.from("players").update({status:"approved"}).eq("id",id);loadPending();};
-  const reject =async(id)=>{await supabase.from("players").update({status:"rejected"}).eq("id",id);loadPending();};
+  const reject =async(id)=>{await supabase.from("players").update({status:"rejected"}).eq("id",id);loadPending();
+  const verifyPlayer=async(id)=>{await supabase.from("players").update({verified:true}).eq("id",id);loadPending();};};
 
   const genInvite=()=>{
     if(!inviteEmail.trim()) return;
@@ -1535,12 +1546,44 @@ export default function App() {
       })()}
 
       
+
+      {/* Compose new message modal */}
+      {showCompose&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:250,backdropFilter:"blur(12px)"}} onClick={()=>{setShowCompose(false);setComposeSearch("");setComposeResults([]);}}>
+          <div style={{background:"var(--bg1)",borderRadius:"20px 20px 0 0",position:"absolute",bottom:0,left:0,right:0,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border2)",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+              <button onClick={()=>{setShowCompose(false);setComposeSearch("");setComposeResults([]);}} style={{background:"transparent",color:"var(--text3)",fontSize:18,padding:4}}>✕</button>
+              <div style={{fontSize:16,fontWeight:500}}>New Message</div>
+            </div>
+            <div style={{padding:"14px 20px",borderBottom:"1px solid var(--border2)",flexShrink:0}}>
+              <input autoFocus style={{width:"100%",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",color:"var(--text)",fontSize:14}} placeholder="Search players..." value={composeSearch} onChange={async e=>{setComposeSearch(e.target.value);if(e.target.value.length>0){const {data}=await supabase.from("players").select("id,name,country,ranking,tour,avatar_url,verified").eq("status","approved").neq("user_id",player?.user_id||"").ilike("name",`%${e.target.value}%`).limit(15);if(data)setComposeResults(data);}else setComposeResults([]);}}/>
+            </div>
+            <div style={{overflowY:"auto",flex:1}}>
+              {composeResults.map(p=>(
+                <button key={p.id} onClick={()=>{setShowCompose(false);setComposeSearch("");setComposeResults([]);openChat(p);}} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"12px 20px",background:"transparent",border:"none",borderBottom:"1px solid var(--border2)",textAlign:"left"}}>
+                  <Avatar src={p.avatar_url} name={p.name} size={44} flag={getFlag(p.country)} verified={p.verified}/>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:500,display:"flex",alignItems:"center",gap:6}}>{p.name}{p.verified&&<span style={{fontSize:10,color:"var(--green)"}}>✓</span>}</div>
+                    <div style={{fontSize:11,color:"var(--text3)"}}>#{p.ranking} · {p.tour} · {p.country}</div>
+                  </div>
+                </button>
+              ))}
+              {composeSearch&&composeResults.length===0&&<div style={{padding:"40px 20px",textAlign:"center",color:"var(--text3)",fontSize:13}}>No players found.</div>}
+              {!composeSearch&&<div style={{padding:"40px 20px",textAlign:"center",color:"var(--text3)",fontSize:13}}>Type a name to search for a player.</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MESSAGES */}
       {tab==="messages"&&(
         <div style={{paddingBottom:90,height:"calc(100vh - 114px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
           {!activeConv?(
             <div style={{flex:1,overflowY:"auto",padding:"12px 0"}}>
-              <div style={{padding:"0 20px 16px",fontSize:22,fontFamily:"var(--serif)",fontWeight:400}}>Messages</div>
+              <div style={{padding:"12px 20px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{fontSize:22,fontFamily:"var(--serif)",fontWeight:400}}>Messages</div>
+                <button onClick={()=>setShowCompose(true)} style={{background:"rgba(0,208,132,0.1)",border:"1px solid rgba(0,208,132,0.2)",color:"var(--green)",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600}}>✏️ New</button>
+              </div>
               {conversations.length===0&&<div style={{textAlign:"center",padding:"60px 20px",color:"var(--text3)",fontSize:13}}>No conversations yet.<br/>Message a player from their profile.</div>}
               {conversations.map(conv=>{
                 const other = conv.player1_id===player?.id?conv.p2:conv.p1;
@@ -1617,6 +1660,7 @@ export default function App() {
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>approve(p.id)} style={{flex:1,background:"var(--green)",color:"#000",border:"none",borderRadius:10,padding:12,fontSize:13,fontWeight:600}}>✓ Approve</button>
                 <button onClick={()=>reject(p.id)} style={{flex:1,background:"transparent",color:"#ef4444",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:12,fontSize:13}}>✗ Reject</button>
+                <button onClick={()=>verifyPlayer(p.id)} style={{flex:1,background:"rgba(0,208,132,0.08)",color:"var(--green)",border:"1px solid rgba(0,208,132,0.2)",borderRadius:10,padding:12,fontSize:13}}>✓ Verify</button>
               </div>
             </div>
           ))}
