@@ -542,7 +542,7 @@ const SponsorCard = memo(({s}) => {
 
 // ─── Sponsors Section ────────────────────────────────────────
 const SponsorsSection = memo(({sponsors, city}) => {
-  const [filter, setFilter] = React.useState("all");
+  const [filter, setFilter] = useState("all");
   const cats = ["all", ...new Set(sponsors.map(s=>s.category))];
   const visible = filter==="all" ? sponsors : sponsors.filter(s=>s.category===filter);
   if(sponsors.length===0) return null;
@@ -582,18 +582,18 @@ const SponsorsSection = memo(({sponsors, city}) => {
 
 // ─── Admin Sponsors Manager ──────────────────────────────────
 const AdminSponsors = memo(({supabase, SPONSOR_CATS, allCities}) => {
-  const [sponsors, setSponsors] = React.useState([]);
-  const [editCity, setEditCity] = React.useState(allCities[0]||"");
-  const [form, setForm] = React.useState({name:"",category:"restaurant",city:"",description:"",url:"",logo_url:"",distance_text:"",featured:false,sort_order:0,active:true});
-  const [adding, setAdding] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
+  const [sponsors, setSponsors] = useState([]);
+  const [editCity, setEditCity] = useState(allCities[0]||"");
+  const [form, setForm] = useState({name:"",category:"restaurant",city:"",description:"",url:"",logo_url:"",distance_text:"",featured:false,sort_order:0,active:true});
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const load = React.useCallback(async(city)=>{
+  const load = useCallback(async(city)=>{
     const {data}=await supabase.from("sponsors").select("*").eq("city",city).order("sort_order");
     if(data) setSponsors(data);
   },[supabase]);
 
-  React.useEffect(()=>{ if(editCity) load(editCity); },[editCity,load]);
+  useEffect(()=>{ if(editCity) load(editCity); },[editCity,load]);
 
   const save = async()=>{
     setSaving(true);
