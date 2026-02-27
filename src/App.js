@@ -106,6 +106,7 @@ const CSS = `
   @keyframes slideUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
   @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes storyProgress{from{width:0%}to{width:100%}}
   @keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.45)}100%{transform:scale(1)}}
   .fu{animation:fadeUp 0.38s cubic-bezier(0.16,1,0.3,1) both;}
   .fi{animation:fadeIn 0.18s ease both;}
@@ -292,6 +293,207 @@ const LikersModal = memo(({ likers, onClose }) => (
 ));
 
 // ─── PlayerProfileView ────────────────────────────────────────
+
+// ─── Story Progress Bar ─────────────────────────────────────
+const StoryProgressBar = memo(({count, current, duration=5000}) => (
+  <div style={{display:"flex",gap:3,padding:"10px 12px 6px",position:"absolute",top:0,left:0,right:0,zIndex:10}}>
+    {Array.from({length:count}).map((_,i)=>(
+      <div key={i} style={{flex:1,height:2,borderRadius:999,background:"rgba(255,255,255,0.3)",overflow:"hidden"}}>
+        <div style={{height:"100%",background:"#fff",width:i<current?"100%":i===current?"var(--prog, 0%)":"0%",
+          animation:i===current?`storyProgress ${duration}ms linear forwards`:"none"}}/>
+      </div>
+    ))}
+  </div>
+));
+
+// ─── Story Viewer (fullscreen) ───────────────────────────────
+const StoryViewer = memo(({activeStory, onClose, onNext, onPrev, player:me}) => {
+  if(!activeStory) return null;
+  const {stories:list, index, label} = activeStory;
+  const s = list[index];
+  if(!s) return null;
+  const p = s.players || {};
+  const mine = s.player_id === me?.id;
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:300,background:"#000"}}
+      onClick={e=>{const x=e.clientX/window.innerWidth;x>0.5?onNext():onPrev();}}>
+      {/* Progress bars */}
+      <StoryProgressBar count={list.length} current={index} duration={5000}/>
+
+      {/* Close */}
+      <button onClick={e=>{e.stopPropagation();onClose();}}
+        style={{position:"absolute",top:46,right:16,zIndex:20,background:"rgba(0,0,0,0.4)",color:"#fff",
+          borderRadius:"50%",width:32,height:32,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+
+      {/* Media */}
+      {s.media_type==="video"
+        ? <video src={s.media_url} autoPlay muted loop style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+        : <img src={s.media_url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+      }
+
+      {/* Gradient */}
+      <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,rgba(0,0,0,0.4) 0%,transparent 30%,transparent 60%,rgba(0,0,0,0.7) 100%)",pointerEvents:"none"}}/>
+
+      {/* Author */}
+      <div style={{position:"absolute",top:52,left:16,display:"flex",alignItems:"center",gap:10}}>
+        <Avatar src={p.avatar_url} name={p.name||"?"} size={38} flag={getFlag(p.country)} verified={p.verified}/>
+        <div>
+          <div style={{fontSize:14,fontWeight:600,color:"#fff"}}>{p.name}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>
+            {label} · {Math.floor((Date.now()-new Date(s.created_at))/3600000)}h ago
+          </div>
+        </div>
+      </div>
+
+      {/* Caption */}
+      {s.caption&&(
+        <div style={{position:"absolute",bottom:60,left:16,right:16,fontSize:14,color:"#fff",
+          textShadow:"0 1px 4px rgba(0,0,0,0.8)",fontWeight:300,lineHeight:1.6}}>
+          {s.caption}
+        </div>
+      )}
+
+      {/* Nav hints */}
+      <div style={{position:"absolute",bottom:20,left:0,right:0,display:"flex",justifyContent:"center",gap:8,pointerEvents:"none"}}>
+        {index>0&&<div style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>← prev</div>}
+        {index<list.length-1&&<div style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>next →</div>}
+      </div>
+    </div>
+  );
+});
+
+// ─── Feed Stories Row ────────────────────────────────────────
+const FeedStoriesRow = memo(({stories, player, onOpen, onAddStory, uploading}) => {
+  // Group by player
+  const byPlayer = stories.reduce((acc, s) => {
+    const pid = s.player_id;
+    if(!acc[pid]) acc[pid] = {player:s.players, stories:[]};
+    acc[pid].stories.push(s);
+    return acc;
+  }, {});
+
+  const myId = player?.id;
+  const hasMyStory = !!byPlayer[myId];
+  const myViewed = (id) => {
+    const s = byPlayer[id];
+    return s?.stories?.every(st => st.viewed_by?.includes(myId));
+  };
+
+  const inputRef = useRef();
+
+  return (
+    <div style={{overflowX:"auto",scrollbarWidth:"none",borderBottom:"1px solid var(--border2)",
+      background:"var(--bg1)"}}>
+      <div style={{display:"flex",gap:14,padding:"14px 16px",width:"max-content"}}>
+
+        {/* My story / Add story */}
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,flexShrink:0}}>
+          <button onClick={()=>inputRef.current?.click()}
+            style={{width:58,height:58,borderRadius:"50%",padding:2,background:"transparent",
+              border:`2px solid ${hasMyStory?"var(--green)":"var(--border)"}`,position:"relative",flexShrink:0}}>
+            <Avatar src={player?.avatar_url} name={player?.name||"?"} size={50} flag={getFlag(player?.country)}/>
+            {!hasMyStory&&(
+              <div style={{position:"absolute",bottom:-2,right:-2,width:20,height:20,background:"var(--green)",
+                borderRadius:"50%",border:"2px solid var(--bg)",color:"#000",fontSize:14,
+                display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,lineHeight:1}}>+</div>
+            )}
+            {uploading&&<div style={{position:"absolute",inset:0,borderRadius:"50%",background:"rgba(0,0,0,0.5)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff"}}>…</div>}
+          </button>
+          <span style={{fontSize:10,color:"var(--text3)",fontWeight:300,maxWidth:58,textAlign:"center",
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Your story</span>
+          <input ref={inputRef} type="file" accept="image/*,video/*" style={{display:"none"}}
+            onChange={e=>{const f=e.target.files?.[0];if(f)onAddStory(f,null,"");e.target.value="";}}/>
+        </div>
+
+        {/* Other players' stories */}
+        {Object.entries(byPlayer).filter(([pid])=>pid!==myId).map(([pid,{player:p,stories:ss}])=>{
+          const viewed = myViewed(pid);
+          return (
+            <div key={pid} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,flexShrink:0}}>
+              <button onClick={()=>onOpen(ss,0,"feed",p?.name||"")}
+                style={{width:58,height:58,borderRadius:"50%",padding:2,background:"transparent",
+                  border:`2px solid ${viewed?"var(--border)":"var(--green)"}`,flexShrink:0}}>
+                <Avatar src={p?.avatar_url} name={p?.name||"?"} size={50} flag={getFlag(p?.country)} verified={p?.verified}/>
+              </button>
+              <span style={{fontSize:10,color:viewed?"var(--text3)":"var(--text)",fontWeight:viewed?300:500,
+                maxWidth:58,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {p?.name?.split(" ")[0]||"?"}
+              </span>
+            </div>
+          );
+        })}
+
+        {stories.length===0&&(
+          <div style={{display:"flex",alignItems:"center",fontSize:12,color:"var(--text3)",fontWeight:300,paddingLeft:8}}>
+            No stories yet today.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
+// ─── Tournament Stories Row ──────────────────────────────────
+const TournamentStoriesRow = memo(({tournament, stories, myPlayerId, checkedInPlayerIds, onOpen, onAddStory, uploading}) => {
+  const isCheckedIn = checkedInPlayerIds?.includes(myPlayerId);
+  const hasStories = stories.length > 0;
+  const inputRef = useRef();
+
+  const myViewed = (s) => s.viewed_by?.includes(myPlayerId);
+  const allViewed = stories.every(myViewed);
+
+  if(!hasStories && !isCheckedIn) return null;
+
+  return (
+    <div style={{background:"rgba(167,139,250,0.06)",border:"1px solid rgba(167,139,250,0.15)",
+      borderRadius:14,margin:"0 16px 12px",padding:"14px 16px"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:600,color:"#a78bfa"}}>{tournament.tournament_name}</div>
+          <div style={{fontSize:11,color:"var(--text3)",fontWeight:300}}>
+            🎾 Live now · {stories.length} {stories.length===1?"story":"stories"}
+          </div>
+        </div>
+        {isCheckedIn&&(
+          <button onClick={()=>inputRef.current?.click()}
+            style={{background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.2)",
+              color:"#a78bfa",borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:600}}>
+            {uploading?"…":"+ Story"}
+          </button>
+        )}
+        <input ref={inputRef} type="file" accept="image/*,video/*" style={{display:"none"}}
+          onChange={e=>{const f=e.target.files?.[0];if(f)onAddStory(f,tournament.id,"");e.target.value="";}}/>
+      </div>
+
+      {hasStories&&(
+        <div style={{display:"flex",gap:12,overflowX:"auto",scrollbarWidth:"none",paddingBottom:4}}>
+          {stories.map((s,i)=>{
+            const p = s.players||{};
+            const viewed = myViewed(s);
+            return (
+              <button key={s.id} onClick={()=>onOpen(stories,i,tournament.tournament_name,tournament.tournament_name)}
+                style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,
+                  background:"transparent",flexShrink:0,width:52}}>
+                <div style={{width:52,height:52,borderRadius:"50%",padding:2,
+                  background:viewed?"transparent":"linear-gradient(135deg,#a78bfa,#7c3aed)",
+                  boxShadow:viewed?"none":"0 0 0 2px var(--bg1) inset"}}>
+                  <Avatar src={p.avatar_url} name={p.name||"?"} size={46} flag={getFlag(p.country)}/>
+                </div>
+                <span style={{fontSize:9,color:viewed?"var(--text3)":"#a78bfa",fontWeight:viewed?300:600,
+                  maxWidth:52,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"center"}}>
+                  {p.name?.split(" ")[0]||"?"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const PlayerProfileView = memo(({ p, posts, onClose, openChat, setTab, toggleFollow, following }) => (
   <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:100,overflowY:"auto"}} className="fi">
     <div style={{position:"sticky",top:0,background:"rgba(10,10,11,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid var(--border2)",padding:"14px 20px",display:"flex",alignItems:"center",gap:12,zIndex:10}}>
@@ -587,6 +789,12 @@ export default function App() {
   const [viewingPlayer,      setViewingPlayer]      = useState(null);
   const [viewingPlayerPosts, setViewingPlayerPosts] = useState([]);
 
+  // Stories
+  const [stories,          setStories]          = useState([]);
+  const [activeStory,      setActiveStory]      = useState(null); // {stories:[], index:0, type:'feed'|'tournament', label:''}
+  const [myStoryUploading, setMyStoryUploading] = useState(false);
+  const storyTimerRef = useRef(null);
+
   // Chat
   const [conversations,    setConversations]    = useState([]);
   const [activeConv,       setActiveConv]       = useState(null); // {conv, otherPlayer}
@@ -765,6 +973,77 @@ export default function App() {
     }
   },[following]);
 
+  // ─── Stories functions ──────────────────────────────────────
+  const loadStories = useCallback(async () => {
+    const now = new Date().toISOString();
+    const {data} = await supabase
+      .from("stories")
+      .select("*, players!stories_player_id_fkey(id,name,country,avatar_url,ranking,tour,verified), tournaments!stories_tournament_id_fkey(id,tournament_name,city,start_date,end_date)")
+      .gt("expires_at", now)
+      .order("created_at", {ascending:false});
+    if(data) setStories(data);
+  },[]);
+
+  const uploadStory = useCallback(async (file, tournamentId, caption="") => {
+    if(!playerRef.current || !file) return;
+    setMyStoryUploading(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `stories/${playerRef.current.id}/${Date.now()}.${ext}`;
+      const {error:upErr} = await supabase.storage.from("media").upload(path, file, {upsert:true});
+      if(upErr) throw upErr;
+      const {data:{publicUrl}} = supabase.storage.from("media").getPublicUrl(path);
+      const mediaType = file.type.startsWith("video") ? "video" : "image";
+      await supabase.from("stories").insert([{
+        player_id: playerRef.current.id,
+        tournament_id: tournamentId,
+        media_url: publicUrl,
+        media_type: mediaType,
+        caption,
+      }]);
+      await loadStories();
+    } catch(e){ console.error(e); }
+    setMyStoryUploading(false);
+  },[loadStories]);
+
+  const markStoryViewed = useCallback(async (storyId) => {
+    const myId = playerRef.current?.id;
+    if(!myId) return;
+    await supabase.from("stories").update({
+      viewed_by: supabase.rpc ? undefined : undefined
+    }).eq("id", storyId);
+    // Use raw SQL via rpc or just track locally
+    setStories(prev => prev.map(s => s.id===storyId && !s.viewed_by?.includes(myId)
+      ? {...s, viewed_by:[...(s.viewed_by||[]),myId]}
+      : s
+    ));
+  },[]);
+
+  const openStoryViewer = useCallback((storyList, index=0, type="feed", label="") => {
+    if(storyTimerRef.current) clearInterval(storyTimerRef.current);
+    setActiveStory({stories:storyList, index, type, label});
+    if(storyList[index]) markStoryViewed(storyList[index].id);
+  },[markStoryViewed]);
+
+  const nextStory = useCallback(() => {
+    setActiveStory(prev => {
+      if(!prev) return null;
+      if(prev.index < prev.stories.length-1){
+        const next = prev.index+1;
+        markStoryViewed(prev.stories[next].id);
+        return {...prev, index:next};
+      }
+      return null; // close
+    });
+  },[markStoryViewed]);
+
+  const prevStory = useCallback(() => {
+    setActiveStory(prev => {
+      if(!prev || prev.index===0) return prev;
+      return {...prev, index:prev.index-1};
+    });
+  },[]);
+
   const loadPlayer = async (uid) => {
     const {data} = await supabase.from("players").select("*").eq("user_id",uid).single();
     if(data){
@@ -778,6 +1057,7 @@ export default function App() {
         countUnread();
         loadNotifications();
         loadFollows();
+        loadStories();
       } else setScreen("pending");
     } else setScreen("landing");
   };
@@ -842,6 +1122,13 @@ export default function App() {
   },[]);
 
   // ─── Feed realtime subscription ─────────────────────────────
+  // Auto-advance stories every 5s
+  useEffect(()=>{
+    if(!activeStory) return;
+    const t = setTimeout(()=>nextStory(), 5000);
+    return ()=>clearTimeout(t);
+  },[activeStory, nextStory]);
+
   const subscribeFeed = useCallback(() => {
     if(feedSubRef.current) supabase.removeChannel(feedSubRef.current);
     feedSubRef.current = supabase
@@ -1434,6 +1721,14 @@ export default function App() {
           )}
 
           {feedMode==="feed"&&<>
+          {/* Stories row */}
+          <FeedStoriesRow
+            stories={stories.filter(s=>!s.tournament_id)}
+            player={player}
+            onOpen={openStoryViewer}
+            onAddStory={uploadStory}
+            uploading={myStoryUploading}
+          />
           {/* New posts banner */}
           {newPostsBanner>0&&(
             <button onClick={()=>{setNewPostsBanner(0);window.scrollTo({top:0,behavior:"smooth"});}} style={{position:"sticky",top:52,zIndex:40,width:"100%",background:"var(--green)",color:"#000",border:"none",padding:"10px",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:8,animation:"fadeIn 0.2s"}}>
@@ -1533,6 +1828,10 @@ export default function App() {
 
       {/* CITIES */}
       {tab==="cities"&&(()=>{
+        const today = new Date().toISOString().slice(0,10);
+        const activeTournaments = tournaments.filter(t =>
+          t.start_date && t.end_date && today >= t.start_date && today <= t.end_date
+        );
         const tips=selectedTournament?(CITY_TIPS[selectedTournament.city]||[]):[];
         const tipCats=[...new Set(tips.map(t=>t.cat))];
         const visibleTips=tips.filter(t=>t.cat===activeTip);
@@ -1577,6 +1876,26 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {/* Tournament stories */}
+            {(()=>{
+              const tournStories = stories.filter(s=>s.tournament_id===selectedTournament.id);
+              const today = new Date().toISOString().slice(0,10);
+              const isActive = selectedTournament.start_date && selectedTournament.end_date &&
+                today >= selectedTournament.start_date && today <= selectedTournament.end_date;
+              if(!isActive && tournStories.length===0) return null;
+              return (
+                <TournamentStoriesRow
+                  tournament={selectedTournament}
+                  stories={tournStories}
+                  myPlayerId={player?.id}
+                  checkedInPlayerIds={cityPlayers.map(p=>p.id)}
+                  onOpen={openStoryViewer}
+                  onAddStory={uploadStory}
+                  uploading={myStoryUploading}
+                />
+              );
+            })()}
 
             {cityTs.length>1&&(
               <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border2)"}}>
@@ -1641,6 +1960,28 @@ export default function App() {
               )}
               {showCitySearch&&<input style={{width:"100%",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",color:"var(--text)",fontSize:13,marginTop:10,fontWeight:300}} placeholder="Search city or tournament..." value={citySearch} onChange={e=>setCitySearch(e.target.value)} autoFocus/>}
             </div>
+
+            {/* Active tournament stories */}
+            {activeTournaments.length>0&&(
+              <div style={{paddingTop:12}}>
+                {activeTournaments.map(tourn=>{
+                  const tournStories = stories.filter(s=>s.tournament_id===tourn.id);
+                  const checkedInIds = cityPlayers.filter(cp=>cp.current_tournament===tourn.tournament_name).map(cp=>cp.id);
+                  return (
+                    <TournamentStoriesRow
+                      key={tourn.id}
+                      tournament={tourn}
+                      stories={tournStories}
+                      myPlayerId={player?.id}
+                      checkedInPlayerIds={checkedInIds}
+                      onOpen={openStoryViewer}
+                      onAddStory={uploadStory}
+                      uploading={myStoryUploading}
+                    />
+                  );
+                })}
+              </div>
+            )}
 
             {!citySearch&&(
               <div style={{padding:"16px 16px 0"}}>
@@ -1807,6 +2148,17 @@ export default function App() {
       })()}
 
       
+
+      {/* Story Viewer */}
+      {activeStory&&(
+        <StoryViewer
+          activeStory={activeStory}
+          onClose={()=>setActiveStory(null)}
+          onNext={nextStory}
+          onPrev={prevStory}
+          player={player}
+        />
+      )}
 
       {/* Compose new message modal */}
       {showCompose&&(
